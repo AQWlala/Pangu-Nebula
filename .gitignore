@@ -1,0 +1,15 @@
+data/
+__pycache__/
+node_modules/
+.env
+.env.local
+dist/
+build/
+*.egg-info/
+.venv/
+.pytest_cache/
+# 参考项目目录 (不提交)
+nomifun-ref/
+# 忽略 spec 但保留项目自带的 pangu-nebula.spec
+*.spec
+!pangu-nebula.spec

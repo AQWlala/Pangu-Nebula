@@ -1,0 +1,4 @@
+# 构建打包依赖 (Phase 11D)
+# 使用方式: pip install -r requirements-build.txt
+
+pyinstaller>=6.0

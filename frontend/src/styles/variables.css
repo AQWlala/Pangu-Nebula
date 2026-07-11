@@ -1,0 +1,101 @@
+﻿:root {
+  --warm-orange-bg-primary: #FFF8F0;
+  --warm-orange-bg-secondary: #FFE8D6;
+  --warm-orange-bg-card: #FFFFFF;
+  --warm-orange-text-primary: #8B4513;
+  --warm-orange-text-secondary: #A0522D;
+  --warm-orange-border: #DEB887;
+  --warm-orange-accent: #FF8C42;
+  --warm-orange-hover: #FFA500;
+
+  --soft-pink-bg-primary: #FFF5F7;
+  --soft-pink-bg-secondary: #FFE4EC;
+  --soft-pink-bg-card: #FFFFFF;
+  --soft-pink-text-primary: #8B4557;
+  --soft-pink-text-secondary: #A0526D;
+  --soft-pink-border: #F5C6D6;
+  --soft-pink-accent: #FF6B8A;
+  --soft-pink-hover: #FF8FA3;
+
+  --cream-beige-bg-primary: #FDF8F3;
+  --cream-beige-bg-secondary: #FAF0E6;
+  --cream-beige-bg-card: #FFFFFF;
+  --cream-beige-text-primary: #7A6B5D;
+  --cream-beige-text-secondary: #8B7B6B;
+  --cream-beige-border: #E8DED0;
+  --cream-beige-accent: #D4A574;
+  --cream-beige-hover: #C4956A;
+
+  --bg-primary: var(--warm-orange-bg-primary);
+  --bg-secondary: var(--warm-orange-bg-secondary);
+  --bg-card: var(--warm-orange-bg-card);
+  --text-primary: var(--warm-orange-text-primary);
+  --text-secondary: var(--warm-orange-text-secondary);
+  --border: var(--warm-orange-border);
+  --accent: var(--warm-orange-accent);
+  --hover: var(--warm-orange-hover);
+
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.3);
+  --glass-blur: 20px;
+
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  --spacing-3xl: 64px;
+
+  --font-xs: 12px;
+  --font-sm: 14px;
+  --font-base: 16px;
+  --font-lg: 18px;
+  --font-xl: 24px;
+  --font-2xl: 32px;
+  --font-3xl: 48px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="warm-orange"] {
+  --bg-primary: var(--warm-orange-bg-primary);
+  --bg-secondary: var(--warm-orange-bg-secondary);
+  --bg-card: var(--warm-orange-bg-card);
+  --text-primary: var(--warm-orange-text-primary);
+  --text-secondary: var(--warm-orange-text-secondary);
+  --border: var(--warm-orange-border);
+  --accent: var(--warm-orange-accent);
+  --hover: var(--warm-orange-hover);
+}
+
+[data-theme="soft-pink"] {
+  --bg-primary: var(--soft-pink-bg-primary);
+  --bg-secondary: var(--soft-pink-bg-secondary);
+  --bg-card: var(--soft-pink-bg-card);
+  --text-primary: var(--soft-pink-text-primary);
+  --text-secondary: var(--soft-pink-text-secondary);
+  --border: var(--soft-pink-border);
+  --accent: var(--soft-pink-accent);
+  --hover: var(--soft-pink-hover);
+}
+
+[data-theme="cream-beige"] {
+  --bg-primary: var(--cream-beige-bg-primary);
+  --bg-secondary: var(--cream-beige-bg-secondary);
+  --bg-card: var(--cream-beige-bg-card);
+  --text-primary: var(--cream-beige-text-primary);
+  --text-secondary: var(--cream-beige-text-secondary);
+  --border: var(--cream-beige-border);
+  --accent: var(--cream-beige-accent);
+  --hover: var(--cream-beige-hover);
+}

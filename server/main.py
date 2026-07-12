@@ -31,6 +31,11 @@ from .api.tools import router as tools_router
 from .api.distiller import router as distiller_router
 from .api.audit import router as audit_router
 from .api.browser import router as browser_router
+from .api.autowork import router as autowork_router
+from .api.dag import router as dag_router
+from .api.wiki_review import router as wiki_review_router
+from .api.acp import router as acp_router
+from .api.terminal import router as terminal_router
 from .api.health import router as health_check_router
 from .tools import builtin_tools  # noqa: F401
 
@@ -97,6 +102,11 @@ app.include_router(tools_router)
 app.include_router(distiller_router)
 app.include_router(audit_router)
 app.include_router(browser_router)
+app.include_router(autowork_router)
+app.include_router(dag_router)
+app.include_router(wiki_review_router)
+app.include_router(acp_router)
+app.include_router(terminal_router)
 app.include_router(health_check_router)
 
 

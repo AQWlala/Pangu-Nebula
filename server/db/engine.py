@@ -3,6 +3,10 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 
 from .orm import Base
 from . import swarm_models  # noqa: F401 - register Swarm/SwarmWorker tables
+from . import autowork_models  # noqa: F401
+from . import dag_models  # noqa: F401
+from . import wiki_review_models  # noqa: F401
+from . import acp_models  # noqa: F401
 from ..config import load_settings
 
 settings = load_settings()

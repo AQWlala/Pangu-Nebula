@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -6,16 +8,79 @@ from ..services.sandbox_engine import PythonSandbox
 from .models import SandboxExecuteRequest
 from ..services.skill_engine import PromptSkillEngine
 from ..services.marketplace import SkillMarketplace
+from ..services.skill_package import (
+    SkillManifest,
+    SkillPackager,
+    SkillInstaller,
+)
 from .models import SkillCreate, SkillUpdate, SkillExecuteRequest, SkillImportMarkdownRequest
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
 _loader = SkillLoader()
 _engine = PromptSkillEngine(_loader)
+_installer = SkillInstaller()
 
 
 class ImportRequest(BaseModel):
     path: str
+
+
+# ===== 技能包 (.skill) 端点 (T5.3) =====
+
+
+class PackRequest(BaseModel):
+    """打包技能请求"""
+
+    name: str
+    version: str = "1.0.0"
+    description: str = ""
+    author: str = ""
+    dependencies: list[str] = []
+    capabilities: list[str] = ["text"]
+    config: dict = {}
+    entry_point: str = "main.handler"
+    code: str = ""  # base64 encoded (可选)
+    code_path: str | None = None  # 服务端读取的代码文件路径(可选)
+
+
+class UnpackRequest(BaseModel):
+    """解包请求"""
+
+    data: str  # base64 编码的 .skill 文件内容
+
+
+class ValidateRequest(BaseModel):
+    """验证请求"""
+
+    name: str
+    version: str = "1.0.0"
+    description: str = ""
+    author: str = ""
+    dependencies: list[str] = []
+    capabilities: list[str] = ["text"]
+    config: dict = {}
+    entry_point: str = "main.handler"
+    code: str = ""
+    checksum: str = ""
+
+
+class InstallRequest(BaseModel):
+    """安装请求"""
+
+    data: str  # base64 编码的 .skill 文件内容
+
+
+class UninstallRequest(BaseModel):
+    """卸载请求"""
+
+    name: str
+
+
+class ExportRequest(BaseModel):
+    """导出请求"""
+
+    name: str
 
 
 def _skill_to_dict(skill) -> dict:
@@ -147,6 +212,150 @@ async def export_skill(name: str):
     return {
         "ok": True,
         "data": {"content": content, "filename": f"{name}.md"},
+        "error": None,
+    }
+
+
+# ===== 技能包 (.skill) 操作端点 (T5.3) =====
+# 注意: 静态路径 /pack /unpack /validate /install /uninstall /installed /export-package
+# 必须注册在 /{name} 之前, 以免被路径参数捕获
+
+
+def _b64decode(data: str) -> bytes:
+    """安全解码 base64 字符串(允许带 padding 或不带 padding)"""
+    import base64 as _b64
+
+    pad = "=" * (-len(data) % 4)
+    return _b64.b64decode(data + pad)
+
+
+def _b64encode(data: bytes) -> str:
+    import base64 as _b64
+
+    return _b64.b64encode(data).decode("ascii")
+
+
+@router.post("/pack")
+async def pack_skill(req: PackRequest):
+    """打包技能为 .skill 格式(JSON, base64 编码返回)"""
+    manifest = SkillManifest(
+        name=req.name,
+        version=req.version,
+        description=req.description,
+        author=req.author,
+        dependencies=req.dependencies,
+        capabilities=req.capabilities,
+        config=req.config,
+        entry_point=req.entry_point,
+        code=req.code,
+    )
+    code_path = Path(req.code_path) if req.code_path else None
+    try:
+        packed = SkillPackager.pack(manifest, code_path=code_path)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": str(e)})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail={"ok": False, "data": None, "error": str(e)})
+    return {
+        "ok": True,
+        "data": {
+            "data": _b64encode(packed),
+            "size": len(packed),
+            "checksum": SkillPackager.calculate_checksum(packed),
+        },
+        "error": None,
+    }
+
+
+@router.post("/unpack")
+async def unpack_skill(req: UnpackRequest):
+    """解包 .skill 格式"""
+    try:
+        raw = _b64decode(req.data)
+        manifest, code_bytes = SkillPackager.unpack(raw)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail={"ok": False, "data": None, "error": str(e)})
+    data = {
+        "name": manifest.name,
+        "version": manifest.version,
+        "description": manifest.description,
+        "author": manifest.author,
+        "dependencies": manifest.dependencies,
+        "capabilities": manifest.capabilities,
+        "config": manifest.config,
+        "entry_point": manifest.entry_point,
+        "checksum": manifest.checksum,
+        "has_code": code_bytes is not None,
+        "code_size": len(code_bytes) if code_bytes is not None else 0,
+    }
+    if code_bytes is not None:
+        data["code"] = _b64encode(code_bytes)
+    return {"ok": True, "data": data, "error": None}
+
+
+@router.post("/validate")
+async def validate_skill(req: ValidateRequest):
+    """验证技能包清单"""
+    manifest = SkillManifest(
+        name=req.name,
+        version=req.version,
+        description=req.description,
+        author=req.author,
+        dependencies=req.dependencies,
+        capabilities=req.capabilities,
+        config=req.config,
+        entry_point=req.entry_point,
+        code=req.code,
+        checksum=req.checksum,
+    )
+    valid, err = SkillPackager.validate(manifest)
+    return {"ok": True, "data": {"valid": valid, "error": err}, "error": None}
+
+
+@router.post("/install")
+async def install_skill(req: InstallRequest):
+    """安装技能包"""
+    try:
+        raw = _b64decode(req.data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail={"ok": False, "data": None, "error": f"invalid base64: {e}"})
+    result = await _installer.install(raw)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result)
+    return result
+
+
+@router.post("/uninstall")
+async def uninstall_skill(req: UninstallRequest):
+    """卸载技能包"""
+    result = await _installer.uninstall(req.name)
+    if not result["ok"]:
+        raise HTTPException(status_code=404, detail=result)
+    return result
+
+
+@router.get("/installed")
+async def list_installed_skills():
+    """列出已安装的 .skill 技能包"""
+    items = await _installer.list_installed()
+    return {"ok": True, "data": items, "error": None}
+
+
+@router.post("/export-package")
+async def export_skill_package(req: ExportRequest):
+    """导出 .skill 技能包(返回 base64 编码内容)"""
+    try:
+        raw = await _installer.export(req.name)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": str(e)})
+    return {
+        "ok": True,
+        "data": {
+            "name": req.name,
+            "data": _b64encode(raw),
+            "size": len(raw),
+            "filename": f"{req.name}.skill",
+        },
         "error": None,
     }
 

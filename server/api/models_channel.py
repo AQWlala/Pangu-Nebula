@@ -67,3 +67,65 @@ class FeishuSendCardRequest(BaseModel):
 
     webhook_url: str
     card: dict
+
+
+# ===== Telegram =====
+
+
+class TelegramConfigureRequest(BaseModel):
+    """Telegram Bot 配置请求"""
+
+    token: str
+
+
+class TelegramSendTextRequest(BaseModel):
+    """Telegram 发送文本请求"""
+
+    chat_id: str | int
+    text: str
+
+
+# ===== Discord =====
+
+
+class DiscordConfigureRequest(BaseModel):
+    """Discord Webhook 配置请求"""
+
+    webhook_url: str
+
+
+class DiscordSendTextRequest(BaseModel):
+    """Discord 发送文本请求"""
+
+    text: str
+
+
+# ===== 钉钉 =====
+
+
+class DingTalkConfigureRequest(BaseModel):
+    """钉钉机器人配置请求"""
+
+    webhook_url: str
+    secret: str = ""
+
+
+class DingTalkSendTextRequest(BaseModel):
+    """钉钉发送文本请求"""
+
+    text: str
+
+
+# ===== 企业微信 =====
+
+
+class WeComConfigureRequest(BaseModel):
+    """企业微信群机器人配置请求"""
+
+    webhook_url: str
+
+
+class WeComSendTextRequest(BaseModel):
+    """企业微信发送文本请求"""
+
+    text: str

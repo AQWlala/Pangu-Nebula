@@ -34,10 +34,18 @@ from .models_channel import (
     ChannelRegisterRequest,
     ChannelSendRequest,
     ChannelUpdateRequest,
+    DingTalkConfigureRequest,
+    DingTalkSendTextRequest,
+    DiscordConfigureRequest,
+    DiscordSendTextRequest,
     FeishuConfigureRequest,
     FeishuSendCardRequest,
     FeishuSendTextRequest,
+    TelegramConfigureRequest,
+    TelegramSendTextRequest,
     WeChatLoginRequest,
+    WeComConfigureRequest,
+    WeComSendTextRequest,
 )
 
 router = APIRouter(prefix="/channel", tags=["channel"])
@@ -72,6 +80,18 @@ async def get_channel():
                 "feishu_send_text",
                 "feishu_send_card",
                 "feishu_status",
+                "telegram_configure",
+                "telegram_send_text",
+                "telegram_status",
+                "discord_configure",
+                "discord_send_text",
+                "discord_status",
+                "dingtalk_configure",
+                "dingtalk_send_text",
+                "dingtalk_status",
+                "wecom_configure",
+                "wecom_send_text",
+                "wecom_status",
             ],
         },
         "error": None,
@@ -242,6 +262,125 @@ async def feishu_send_card(req: FeishuSendCardRequest):
 async def feishu_status():
     """获取飞书渠道状态"""
     data = channel_router.feishu.get_status()
+    return {"ok": True, "data": data, "error": None}
+
+
+# ===== Telegram 端点(静态路径)=====
+
+
+@router.post("/telegram/configure")
+async def telegram_configure(req: TelegramConfigureRequest):
+    """配置 Telegram Bot Token"""
+    data = channel_router.telegram.configure(token=req.token)
+    return {"ok": True, "data": data, "error": None}
+
+
+@router.post("/telegram/send-text")
+async def telegram_send_text(req: TelegramSendTextRequest):
+    """通过 Telegram Bot 发送文本消息"""
+    result = await channel_router.telegram.send_text(req.chat_id, req.text)
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail={"ok": False, "data": None, "error": result.get("error")},
+        )
+    return {"ok": True, "data": result, "error": None}
+
+
+@router.get("/telegram/status")
+async def telegram_status():
+    """获取 Telegram 渠道状态"""
+    data = channel_router.telegram.get_status()
+    return {"ok": True, "data": data, "error": None}
+
+
+# ===== Discord 端点(静态路径)=====
+
+
+@router.post("/discord/configure")
+async def discord_configure(req: DiscordConfigureRequest):
+    """配置 Discord Webhook URL"""
+    data = channel_router.discord.configure(webhook_url=req.webhook_url)
+    return {"ok": True, "data": data, "error": None}
+
+
+@router.post("/discord/send-text")
+async def discord_send_text(req: DiscordSendTextRequest):
+    """通过 Discord Webhook 发送文本消息"""
+    result = await channel_router.discord.send_text(req.text)
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail={"ok": False, "data": None, "error": result.get("error")},
+        )
+    return {"ok": True, "data": result, "error": None}
+
+
+@router.get("/discord/status")
+async def discord_status():
+    """获取 Discord 渠道状态"""
+    data = channel_router.discord.get_status()
+    return {"ok": True, "data": data, "error": None}
+
+
+# ===== 钉钉端点(静态路径)=====
+
+
+@router.post("/dingtalk/configure")
+async def dingtalk_configure(req: DingTalkConfigureRequest):
+    """配置钉钉机器人 Webhook 和签名密钥"""
+    data = channel_router.dingtalk.configure(
+        webhook_url=req.webhook_url,
+        secret=req.secret,
+    )
+    return {"ok": True, "data": data, "error": None}
+
+
+@router.post("/dingtalk/send-text")
+async def dingtalk_send_text(req: DingTalkSendTextRequest):
+    """通过钉钉机器人发送文本消息"""
+    result = await channel_router.dingtalk.send_text(req.text)
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail={"ok": False, "data": None, "error": result.get("error")},
+        )
+    return {"ok": True, "data": result, "error": None}
+
+
+@router.get("/dingtalk/status")
+async def dingtalk_status():
+    """获取钉钉渠道状态"""
+    data = channel_router.dingtalk.get_status()
+    return {"ok": True, "data": data, "error": None}
+
+
+# ===== 企业微信端点(静态路径)=====
+
+
+@router.post("/wecom/configure")
+async def wecom_configure(req: WeComConfigureRequest):
+    """配置企业微信群机器人 Webhook"""
+    data = channel_router.wecom.configure(webhook_url=req.webhook_url)
+    return {"ok": True, "data": data, "error": None}
+
+
+@router.post("/wecom/send-text")
+async def wecom_send_text(req: WeComSendTextRequest):
+    """通过企业微信群机器人发送文本消息"""
+    result = await channel_router.wecom.send_text(req.text)
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail={"ok": False, "data": None, "error": result.get("error")},
+        )
+    return {"ok": True, "data": result, "error": None}
+
+
+@router.get("/wecom/status")
+async def wecom_status():
+    """获取企业微信渠道状态"""
+    data = channel_router.wecom.get_status()
     return {"ok": True, "data": data, "error": None}
 
 

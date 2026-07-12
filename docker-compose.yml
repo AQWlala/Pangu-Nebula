@@ -1,0 +1,14 @@
+version: "3.8"
+services:
+  pangu-nebula:
+    build: .
+    ports:
+      - "7860:7860"
+    volumes:
+      - pangu-data:/app/data
+      - ./frontend/dist:/app/frontend/dist:ro
+    environment:
+      - NEBULA_DEBUG=false
+    restart: unless-stopped
+volumes:
+  pangu-data:

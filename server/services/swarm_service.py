@@ -142,6 +142,82 @@ class SwarmService:
             swarm = await session.get(Swarm, swarm_id)
             return swarm is not None and swarm.status == "cancelled"
 
+    # ===== T3.2: 全局多样性报告与健康检查 =====
+
+    async def get_diversity_report(self) -> dict:
+        """全局 provider 分布报告
+
+        汇总所有蜂群的 worker provider 分布情况。
+
+        返回 {ok, total_workers, provider_distribution, model_distribution, swarm_count}
+        """
+        async with async_session() as session:
+            result = await session.execute(select(SwarmWorker))
+            workers = list(result.scalars().all())
+            swarm_result = await session.execute(select(Swarm))
+            swarms = list(swarm_result.scalars().all())
+
+        total = len(workers)
+        provider_counts: dict[str, int] = {}
+        model_counts: dict[str, int] = {}
+        for w in workers:
+            p = w.model_provider or "unknown"
+            m = w.model_name or "unknown"
+            provider_counts[p] = provider_counts.get(p, 0) + 1
+            model_counts[m] = model_counts.get(m, 0) + 1
+
+        return {
+            "ok": True,
+            "total_workers": total,
+            "swarm_count": len(swarms),
+            "provider_distribution": provider_counts,
+            "model_distribution": model_counts,
+        }
+
+    async def check_diversity_health(self) -> dict:
+        """多样性健康检查
+
+        同源率(单一 provider 占比) > 80% 时告警。
+
+        返回 {ok, healthy, dominant_provider, dominant_ratio, total_workers, warning}
+        """
+        report = await self.get_diversity_report()
+        total = report["total_workers"]
+        provider_dist = report["provider_distribution"]
+
+        if total == 0:
+            return {
+                "ok": True,
+                "healthy": True,
+                "dominant_provider": None,
+                "dominant_ratio": 0.0,
+                "total_workers": 0,
+                "warning": None,
+            }
+
+        # 找出占比最高的 provider
+        dominant_provider = max(provider_dist, key=provider_dist.get)
+        dominant_ratio = provider_dist[dominant_provider] / total
+
+        # 同源率 > 80% 视为不健康
+        healthy = dominant_ratio <= 0.8
+        warning = None
+        if not healthy:
+            warning = (
+                f"多样性告警: provider '{dominant_provider}' 占比 "
+                f"{dominant_ratio:.1%} 超过 80% 阈值,建议引入更多 provider 以提升蜂群多样性"
+            )
+
+        return {
+            "ok": True,
+            "healthy": healthy,
+            "dominant_provider": dominant_provider,
+            "dominant_ratio": round(dominant_ratio, 4),
+            "total_workers": total,
+            "provider_distribution": provider_dist,
+            "warning": warning,
+        }
+
     async def run_swarm(self, swarm_id: int) -> AsyncIterator[dict]:
         async with async_session() as session:
             swarm = await session.get(Swarm, swarm_id)

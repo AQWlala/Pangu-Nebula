@@ -17,6 +17,9 @@ from ..providers.registry import get_provider
 class SwarmOrchestrator:
     def __init__(self, session_factory=None):
         self.session_factory = session_factory or async_session
+        # Worker 动态扩缩容配置 (T3.1)
+        self.min_workers = 2
+        self.max_workers = 8
 
     async def decompose_task(self, swarm_id: int, goal: str, persona: Persona) -> list[dict]:
         prompt = (
@@ -304,6 +307,149 @@ class SwarmOrchestrator:
                 "worker_index": worker.worker_index,
                 "error": str(exc),
             }
+
+    # ===== T3.1: Worker 动态扩缩容 =====
+
+    async def resize_workers(self, swarm_id: int, count: int) -> dict:
+        """调整蜂群的 worker 数量
+
+        - swarm_id: 蜂群 ID
+        - count: 目标 worker 数量(会被限制在 [min_workers, max_workers] 范围内)
+
+        返回 {ok, swarm_id, before, after, added, removed}
+        """
+        target = max(self.min_workers, min(self.max_workers, count))
+
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(SwarmWorker).where(SwarmWorker.swarm_id == swarm_id)
+            )
+            workers = list(result.scalars().all())
+            before = len(workers)
+
+            if before == target:
+                return {
+                    "ok": True,
+                    "swarm_id": swarm_id,
+                    "before": before,
+                    "after": before,
+                    "added": 0,
+                    "removed": 0,
+                    "message": "worker count unchanged",
+                }
+
+            if before < target:
+                # 扩容:添加新 worker
+                added = 0
+                # 取已有 worker 的 provider/model 作为模板
+                template_provider = "openai"
+                template_model = "gpt-4o-mini"
+                if workers:
+                    template_provider = workers[0].model_provider or template_provider
+                    template_model = workers[0].model_name or template_model
+                # 找到最大 worker_index 便于续号(按 subtask 分组补齐)
+                subtask_groups: dict[str, list[SwarmWorker]] = {}
+                for w in workers:
+                    subtask_groups.setdefault(w.subtask_id, []).append(w)
+                for subtask_id, group in subtask_groups.items():
+                    max_idx = max((w.worker_index for w in group), default=-1)
+                    # 每个 subtask 至少 target 个 worker
+                    current = len(group)
+                    if current < target:
+                        need = target - current
+                        for _ in range(need):
+                            max_idx += 1
+                            new_worker = SwarmWorker(
+                                swarm_id=swarm_id,
+                                subtask_id=subtask_id,
+                                worker_index=max_idx,
+                                model_provider=template_provider,
+                                model_name=template_model,
+                            )
+                            session.add(new_worker)
+                            added += 1
+                await session.commit()
+                return {
+                    "ok": True,
+                    "swarm_id": swarm_id,
+                    "before": before,
+                    "after": before + added,
+                    "added": added,
+                    "removed": 0,
+                }
+
+            # 缩容:移除多余的 worker(优先移除 pending 状态的)
+            excess = before - target
+            removed = 0
+            # 按 status 优先级排序: pending > running > completed > failed
+            status_priority = {"pending": 0, "running": 1, "completed": 2, "failed": 3}
+            sorted_workers = sorted(
+                workers,
+                key=lambda w: (status_priority.get(w.status, 9), -w.worker_index),
+            )
+            for w in sorted_workers[:excess]:
+                await session.delete(w)
+                removed += 1
+            await session.commit()
+            return {
+                "ok": True,
+                "swarm_id": swarm_id,
+                "before": before,
+                "after": before - removed,
+                "added": 0,
+                "removed": removed,
+            }
+
+    # ===== T3.2: 多样性指标 =====
+
+    async def get_diversity_metrics(self, swarm_id: int) -> dict:
+        """获取蜂群的 provider 多样性指标
+
+        返回 {ok, swarm_id, total_workers, provider_distribution, model_distribution, diversity_score}
+        - diversity_score: 0-1,越高表示越多样(基于 Shannon 熵归一化)
+        """
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(SwarmWorker).where(SwarmWorker.swarm_id == swarm_id)
+            )
+            workers = list(result.scalars().all())
+
+        total = len(workers)
+        if total == 0:
+            return {
+                "ok": True,
+                "swarm_id": swarm_id,
+                "total_workers": 0,
+                "provider_distribution": {},
+                "model_distribution": {},
+                "diversity_score": 0.0,
+            }
+
+        provider_counts: dict[str, int] = {}
+        model_counts: dict[str, int] = {}
+        for w in workers:
+            p = w.model_provider or "unknown"
+            m = w.model_name or "unknown"
+            provider_counts[p] = provider_counts.get(p, 0) + 1
+            model_counts[m] = model_counts.get(m, 0) + 1
+
+        # Shannon 熵归一化作为多样性得分
+        import math
+        provider_entropy = 0.0
+        for count in provider_counts.values():
+            p = count / total
+            provider_entropy -= p * math.log(p) if p > 0 else 0
+        max_entropy = math.log(len(provider_counts)) if len(provider_counts) > 1 else 1
+        diversity_score = provider_entropy / max_entropy if max_entropy > 0 else 0.0
+
+        return {
+            "ok": True,
+            "swarm_id": swarm_id,
+            "total_workers": total,
+            "provider_distribution": provider_counts,
+            "model_distribution": model_counts,
+            "diversity_score": round(diversity_score, 4),
+        }
 
     def _parse_subtasks(self, response: str) -> list[dict]:
         text = response.strip()

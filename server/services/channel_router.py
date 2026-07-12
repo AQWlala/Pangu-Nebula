@@ -32,12 +32,16 @@ from sqlalchemy import select
 
 from ..db.engine import async_session
 from ..db.orm import Channel
+from .dingtalk_channel import DingTalkChannel
+from .discord_channel import DiscordChannel
 from .feishu_channel import FeishuChannel
+from .telegram_channel import TelegramChannel
 from .wechat_channel import WeChatChannel
+from .wecom_channel import WeComChannel
 
 
 # 支持的渠道类型
-SUPPORTED_TYPES: list[str] = ["wechat", "feishu"]
+SUPPORTED_TYPES: list[str] = ["wechat", "feishu", "telegram", "discord", "dingtalk", "wecom"]
 
 
 class ChannelRouter:
@@ -53,6 +57,10 @@ class ChannelRouter:
         # 内部维护的渠道实例(单例)
         self.wechat: WeChatChannel = WeChatChannel()
         self.feishu: FeishuChannel = FeishuChannel()
+        self.telegram: TelegramChannel = TelegramChannel()
+        self.discord: DiscordChannel = DiscordChannel()
+        self.dingtalk: DingTalkChannel = DingTalkChannel()
+        self.wecom: WeComChannel = WeComChannel()
 
     # ===== 渠道实例访问 =====
 

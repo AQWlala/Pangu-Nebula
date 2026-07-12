@@ -9,7 +9,8 @@ import httpx
 import pytest
 
 BACKEND_URL = "http://127.0.0.1:7860"
-PYTHON = os.path.join(os.path.dirname(__file__), "..", ".venv", "Scripts", "python.exe")
+# 用当前 Python 解释器,避免硬编码 .venv 路径 (Windows/Linux 通用)
+PYTHON = sys.executable
 
 
 @pytest.fixture(scope="module")

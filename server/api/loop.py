@@ -65,7 +65,7 @@ async def run_loop(loop_id: int):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@router.post("/{loop_id}/cancel")
+@router.post("/{loop_id}/cancel", summary="取消循环", description="取消指定的循环迭代任务")
 async def cancel_loop(loop_id: int):
     """取消循环"""
     data = await _engine.cancel_loop(loop_id)
@@ -77,7 +77,7 @@ async def cancel_loop(loop_id: int):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/{loop_id}")
+@router.get("/{loop_id}", summary="获取循环详情", description="获取指定循环迭代任务的详细信息")
 async def get_loop(loop_id: int):
     """获取循环详情"""
     data = await _engine.get_loop(loop_id)
@@ -89,7 +89,7 @@ async def get_loop(loop_id: int):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.put("/{loop_id}")
+@router.put("/{loop_id}", summary="更新循环", description="更新循环状态 (目前仅支持取消: status='cancelled')")
 async def update_loop(loop_id: int, req: LoopUpdateRequest):
     """更新循环状态(目前仅支持取消:status="cancelled")"""
     if req.status == "cancelled":
@@ -111,7 +111,7 @@ async def update_loop(loop_id: int, req: LoopUpdateRequest):
     )
 
 
-@router.delete("/{loop_id}")
+@router.delete("/{loop_id}", summary="删除循环", description="删除指定的循环迭代任务")
 async def delete_loop(loop_id: int):
     """删除循环任务"""
     deleted = await _engine.delete_loop(loop_id)

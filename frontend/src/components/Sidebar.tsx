@@ -24,6 +24,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "chat", label: "对话", icon: "💬" },
       { id: "swarm", label: "蜂群", icon: "🐝" },
+      { id: "dag", label: "DAG 画布", icon: "🕸" },
     ],
   },
   {
@@ -32,6 +33,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "memory", label: "记忆图谱", icon: "🧠" },
       { id: "skills", label: "技能市场", icon: "⚡" },
       { id: "wiki", label: "Wiki浏览", icon: "📖" },
+      { id: "wiki-review", label: "审核收件箱", icon: "📥" },
     ],
   },
   {

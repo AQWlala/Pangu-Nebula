@@ -166,12 +166,78 @@ class WikiReviewService:
                 tofile=f"proposed (review_id={item.id})",
             )
         )
+        # 结构化 diff: 行级分类 (T2.6) - 便于前端高亮
+        structured = self._build_structured_diff(current_lines, proposed_lines)
         return {
             "id": item.id,
             "wiki_id": item.wiki_id,
             "diff": "".join(diff),
             "has_changes": len(diff) > 0,
+            "structured": structured,
+            "stats": {
+                "added": sum(1 for s in structured if s["type"] == "added"),
+                "removed": sum(1 for s in structured if s["type"] == "removed"),
+                "context": sum(1 for s in structured if s["type"] == "context"),
+            },
         }
+
+    @staticmethod
+    def _build_structured_diff(
+        old_lines: list[str], new_lines: list[str]
+    ) -> list[dict]:
+        """构建结构化 diff,每行标记类型: context / added / removed
+
+        使用 difflib.SequenceMatcher 进行行级比对。
+        注: 入参的行可能带换行符(keepends=True),内部统一去除换行符后再比对,
+            避免"line B" 与 "line B\\n" 被误判为不同行。
+        """
+        # 去除每行的换行符后比对
+        old_stripped = [l.rstrip("\n") for l in old_lines]
+        new_stripped = [l.rstrip("\n") for l in new_lines]
+        sm = difflib.SequenceMatcher(a=old_stripped, b=new_stripped, autojunk=False)
+        result: list[dict] = []
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag == "equal":
+                for k in range(i2 - i1):
+                    result.append({
+                        "type": "context",
+                        "old_line_no": i1 + k + 1,
+                        "new_line_no": j1 + k + 1,
+                        "content": old_stripped[i1 + k],
+                    })
+            elif tag == "replace":
+                # 修改: 先输出删除行, 再输出新增行
+                for k in range(i2 - i1):
+                    result.append({
+                        "type": "removed",
+                        "old_line_no": i1 + k + 1,
+                        "new_line_no": None,
+                        "content": old_stripped[i1 + k],
+                    })
+                for k in range(j2 - j1):
+                    result.append({
+                        "type": "added",
+                        "old_line_no": None,
+                        "new_line_no": j1 + k + 1,
+                        "content": new_stripped[j1 + k],
+                    })
+            elif tag == "delete":
+                for k in range(i2 - i1):
+                    result.append({
+                        "type": "removed",
+                        "old_line_no": i1 + k + 1,
+                        "new_line_no": None,
+                        "content": old_stripped[i1 + k],
+                    })
+            elif tag == "insert":
+                for k in range(j2 - j1):
+                    result.append({
+                        "type": "added",
+                        "old_line_no": None,
+                        "new_line_no": j1 + k + 1,
+                        "content": new_stripped[j1 + k],
+                    })
+        return result
 
     async def check_scope(self, agent_id: str, scope: str) -> bool:
         """作用域校验:检查 agent 是否有权操作该 scope

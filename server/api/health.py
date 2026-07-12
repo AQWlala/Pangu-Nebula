@@ -61,7 +61,7 @@ async def list_providers_status():
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/providers/{name}")
+@router.get("/providers/{name}", summary="获取 Provider 健康状态", description="获取单个 Provider 的当前健康状态")
 async def get_provider_status(name: str):
     """获取单个 Provider 健康状态"""
     if not is_registered(name):
@@ -97,7 +97,7 @@ async def check_all_providers():
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/monitor")
+@router.get("/monitor", summary="获取监控状态", description="获取 Provider 健康检查后台监控的当前状态")
 async def get_monitor_status():
     """获取监控状态"""
     try:
@@ -110,7 +110,7 @@ async def get_monitor_status():
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/monitor/start")
+@router.post("/monitor/start", summary="启动监控", description="启动 Provider 健康检查后台监控")
 async def start_monitor(req: MonitorStartRequest):
     """启动后台监控"""
     try:
@@ -123,7 +123,7 @@ async def start_monitor(req: MonitorStartRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/monitor/stop")
+@router.post("/monitor/stop", summary="停止监控", description="停止 Provider 健康检查后台监控")
 async def stop_monitor():
     """停止后台监控"""
     try:
@@ -136,7 +136,7 @@ async def stop_monitor():
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/check/{name}")
+@router.post("/check/{name}", summary="检查单个 Provider", description="手动触发检查单个 Provider 的健康状态")
 async def check_provider(name: str):
     """手动检查单个 Provider"""
     if not is_registered(name):
@@ -159,7 +159,7 @@ async def check_provider(name: str):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/history/{name}")
+@router.get("/history/{name}", summary="Provider 历史记录", description="获取指定 Provider 的健康检查历史记录")
 async def get_provider_history(
     name: str,
     limit: int = Query(20, ge=1, le=100, description="返回的历史记录数量"),

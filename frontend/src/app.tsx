@@ -10,10 +10,12 @@ import ChatPanel from "./components/ChatPanel"
 import PersonaManager from "./components/PersonaManager"
 import OnboardingWizard from "./components/OnboardingWizard"
 import SwarmProgress from "./components/SwarmProgress"
+import DAGCanvas from "./components/DAGCanvas"
 import MemoryGraph from "./components/MemoryGraph"
 import MemoryInspector from "./components/MemoryInspector"
 import SkillMarketplace from "./components/SkillMarketplace"
 import WikiBrowser from "./components/WikiBrowser"
+import WikiReviewInbox from "./components/WikiReviewInbox"
 import Dashboard from "./components/Dashboard"
 import { apiGet, apiPost } from "./lib/api"
 
@@ -125,6 +127,8 @@ export default function App() {
         return <ChatPanel />
       case "swarm":
         return <SwarmProgress />
+      case "dag":
+        return <DAGCanvas />
       case "memory":
         return <MemoryGraph />
       case "memory-inspector":
@@ -133,6 +137,8 @@ export default function App() {
         return <SkillMarketplace />
       case "wiki":
         return <WikiBrowser />
+      case "wiki-review":
+        return <WikiReviewInbox />
       case "persona":
         return <PersonaManager />
       case "evolution":

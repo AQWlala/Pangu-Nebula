@@ -68,7 +68,7 @@ async def create_log(req: AuditLogCreate):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/logs/{log_id}")
+@router.get("/logs/{log_id}", summary="获取审计日志", description="获取单条审计日志详情")
 async def get_log(log_id: int):
     """获取单条审计日志"""
     async with async_session() as session:
@@ -81,7 +81,7 @@ async def get_log(log_id: int):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.delete("/logs/{log_id}")
+@router.delete("/logs/{log_id}", summary="删除审计日志", description="删除指定的审计日志记录")
 async def delete_log(log_id: int):
     """删除审计日志"""
     async with async_session() as session:
@@ -114,7 +114,7 @@ async def get_summary(
 # ===== 预算控制端点 =====
 
 
-@router.get("/budget")
+@router.get("/budget", summary="获取预算配置", description="获取指定 Persona 或全局的预算配置")
 async def get_budget(
     persona_id: int | None = Query(None, description="Persona ID,为空则获取全局配置"),
 ):
@@ -124,7 +124,7 @@ async def get_budget(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/budget")
+@router.post("/budget", summary="设置预算配置", description="设置预算配置 (不存在则新建,存在则更新)")
 async def create_budget(req: BudgetConfigCreate):
     """设置预算配置(不存在则新建,存在则更新)"""
     async with async_session() as session:
@@ -141,7 +141,7 @@ async def create_budget(req: BudgetConfigCreate):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.put("/budget")
+@router.put("/budget", summary="更新预算配置", description="更新预算配置 (仅更新提供的字段)")
 async def update_budget(
     req: BudgetConfigUpdate,
     persona_id: int | None = Query(None, description="Persona ID,为空则更新全局配置"),
@@ -170,7 +170,7 @@ async def check_budget(req: BudgetCheckRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/budget/usage")
+@router.get("/budget/usage", summary="获取预算用量", description="获取当前周期内预算的使用情况 (token/时间/cost)")
 async def get_budget_usage(
     persona_id: int | None = Query(None, description="Persona ID,为空则查询全局用量"),
     period: str = Query("daily", description="周期: daily/weekly/monthly"),

@@ -48,7 +48,7 @@ async def list_logs(
     return {"ok": True, "data": {"items": logs, "count": len(logs)}, "error": None}
 
 
-@router.get("/logs/{log_id}")
+@router.get("/logs/{log_id}", summary="获取进化日志", description="获取单个进化日志详情")
 async def get_log(log_id: int):
     """获取单个进化日志"""
     async with async_session() as session:

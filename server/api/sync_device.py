@@ -60,7 +60,7 @@ async def confirm_pairing(req: PairingConfirmRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/pairing/status/{pairing_code}")
+@router.get("/pairing/status/{pairing_code}", summary="查询配对状态", description="查询指定配对码的配对状态")
 async def get_pairing_status(pairing_code: str):
     """查询配对状态"""
     data = pairing_service.get_pairing_status(pairing_code)
@@ -85,28 +85,28 @@ async def list_devices():
 # ===== 中继端点(静态路径) =====
 
 
-@router.post("/relay/start")
+@router.post("/relay/start", summary="启动中继", description="启动中继连接(连接到指定 URL 的中继服务器)")
 async def start_relay(req: RelayStartRequest):
     """启动中继连接"""
     data = relay_service.start_relay(url=req.url, device_id=req.device_id)
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/relay/stop")
+@router.post("/relay/stop", summary="停止中继", description="停止中继连接")
 async def stop_relay():
     """停止中继连接"""
     data = relay_service.stop_relay()
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/relay/status")
+@router.get("/relay/status", summary="中继状态", description="获取中继连接的运行状态")
 async def get_relay_status():
     """获取中继状态"""
     data = relay_service.get_status()
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/relay/sync")
+@router.post("/relay/sync", summary="触发中继同步", description="手动触发与指定设备的同步(push -> pull -> mark synced)")
 async def relay_sync(req: RelaySyncRequest):
     """手动触发同步(push -> pull -> mark synced)"""
     device_id = req.device_id or relay_service.get_status().get("device_id", "")
@@ -119,7 +119,7 @@ async def relay_sync(req: RelaySyncRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/relay/servers")
+@router.get("/relay/servers", summary="列出中继服务器", description="列出已配置的中继服务器列表")
 async def list_relay_servers():
     """列出已配置的中继服务器"""
     data = relay_service.list_relay_servers()
@@ -129,7 +129,7 @@ async def list_relay_servers():
 # ===== 设备端点(动态路径,必须在静态路径之后) =====
 
 
-@router.get("/devices/{device_id}")
+@router.get("/devices/{device_id}", summary="获取设备", description="获取单个已配对设备的信息")
 async def get_device(device_id: str):
     """获取单个设备信息"""
     data = await pairing_service.get_device(device_id)
@@ -141,7 +141,7 @@ async def get_device(device_id: str):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.delete("/devices/{device_id}")
+@router.delete("/devices/{device_id}", summary="撤销设备", description="撤销设备配对(status=blocked)")
 async def revoke_device(device_id: str):
     """撤销设备配对(status=blocked)"""
     revoked = await pairing_service.revoke_device(device_id)

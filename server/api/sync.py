@@ -89,7 +89,7 @@ async def create_lww(req: LWWCreateRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/crdt/lww/{key}/merge")
+@router.post("/crdt/lww/{key}/merge", summary="合并 LWW Register", description="合并远程 LWW Register (Last-Write-Wins)")
 async def merge_lww(key: str, req: LWWMergeRequest):
     """合并远程 LWW Register
 
@@ -109,7 +109,7 @@ async def merge_lww(key: str, req: LWWMergeRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/crdt/lww/{key}")
+@router.get("/crdt/lww/{key}", summary="获取 LWW Register", description="获取指定 key 的 LWW Register 值")
 async def get_lww(key: str):
     """获取 LWW Register 值"""
     try:
@@ -129,7 +129,7 @@ async def get_lww(key: str):
 # ===== OR-Set =====
 
 
-@router.post("/crdt/orset")
+@router.post("/crdt/orset", summary="创建 OR-Set", description="创建空的 OR-Set (Observed-Remove Set)")
 async def create_orset(req: ORSetCreateRequest):
     """创建空 OR-Set"""
     try:
@@ -141,7 +141,7 @@ async def create_orset(req: ORSetCreateRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/crdt/orset/{key}/add")
+@router.post("/crdt/orset/{key}/add", summary="添加 OR-Set 元素", description="向 OR-Set 添加元素")
 async def add_to_orset(key: str, req: ORSetAddRequest):
     """向 OR-Set 添加元素"""
     try:
@@ -153,7 +153,7 @@ async def add_to_orset(key: str, req: ORSetAddRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/crdt/orset/{key}/remove")
+@router.post("/crdt/orset/{key}/remove", summary="删除 OR-Set 元素", description="从 OR-Set 删除元素")
 async def remove_from_orset(key: str, req: ORSetRemoveRequest):
     """从 OR-Set 删除元素"""
     try:
@@ -165,7 +165,7 @@ async def remove_from_orset(key: str, req: ORSetRemoveRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/crdt/orset/{key}/merge")
+@router.post("/crdt/orset/{key}/merge", summary="合并 OR-Set", description="合并远程 OR-Set")
 async def merge_orset(key: str, req: ORSetMergeRequest):
     """合并远程 OR-Set"""
     try:
@@ -177,7 +177,7 @@ async def merge_orset(key: str, req: ORSetMergeRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/crdt/orset/{key}")
+@router.get("/crdt/orset/{key}", summary="获取 OR-Set", description="获取 OR-Set 的所有值")
 async def get_orset(key: str):
     """获取 OR-Set 的所有值"""
     try:
@@ -197,7 +197,7 @@ async def get_orset(key: str):
 # ===== 同步操作追踪 =====
 
 
-@router.get("/operations")
+@router.get("/operations", summary="列出待同步操作", description="列出未同步到指定设备的操作")
 async def list_operations(
     device_id: str = Query(..., description="查询未同步到该设备的操作"),
 ):
@@ -211,7 +211,7 @@ async def list_operations(
     return {"ok": True, "data": {"operations": data, "count": len(data)}, "error": None}
 
 
-@router.post("/operations/{op_id}/synced")
+@router.post("/operations/{op_id}/synced", summary="标记操作已同步", description="标记指定操作已同步到某设备")
 async def mark_op_synced(op_id: int, req: SyncOpSyncedRequest):
     """标记操作已同步到某设备"""
     try:

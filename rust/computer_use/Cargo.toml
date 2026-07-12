@@ -1,0 +1,24 @@
+[package]
+name = "computer_use"
+version = "0.1.0"
+edition = "2021"
+description = "Pangu Nebula Computer Use Rust 模块 - 骨架(实际功能由 Python mock 提供)"
+
+[lib]
+name = "computer_use"
+crate-type = ["cdylib"]
+
+[dependencies]
+# PyO3: Python 互操作
+pyo3 = { version = "0.22", features = ["extension-module"] }
+# 以下依赖为未来实现预留,当前骨架不强制启用
+# accesskit = "0.17"           # 跨平台无障碍树
+# screenshots = "0.5"          # 屏幕截图
+# tesseract-rs = "0.3"         # OCR (或使用 PaddleOCR-rs)
+# enigo = "0.2"                # 键盘/鼠标输入模拟
+# image = "0.25"               # 图像处理
+# tokio = { version = "1", features = ["full"] }
+
+[profile.release]
+opt-level = 3
+lto = true

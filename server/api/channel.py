@@ -158,7 +158,7 @@ async def send_message(req: ChannelSendRequest):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.post("/receive")
+@router.post("/receive", summary="统一接收消息", description="统一接收消息(Webhook 回调),将渠道特定的原始消息转换为统一格式")
 async def receive_message(req: ChannelReceiveRequest):
     """统一接收消息(Webhook 回调)
 
@@ -180,7 +180,7 @@ async def receive_message(req: ChannelReceiveRequest):
 # ===== 微信端点(静态路径)=====
 
 
-@router.post("/wechat/login")
+@router.post("/wechat/login", summary="微信登录", description="微信扫码登录(实际二维码回调需通过 WebSocket / SSE 推送,这里简化为阻塞式登录)")
 async def wechat_login(req: WeChatLoginRequest):
     """微信登录(扫码)
 
@@ -199,21 +199,21 @@ async def wechat_login(req: WeChatLoginRequest):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.post("/wechat/logout")
+@router.post("/wechat/logout", summary="微信登出", description="登出当前微信账号")
 async def wechat_logout():
     """微信登出"""
     result = channel_router.wechat.logout()
     return {"ok": True, "data": result, "error": None}
 
 
-@router.get("/wechat/status")
+@router.get("/wechat/status", summary="微信状态", description="获取微信登录状态和当前账号信息")
 async def wechat_status():
     """获取微信登录状态"""
     data = channel_router.wechat.get_status()
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/wechat/contacts")
+@router.get("/wechat/contacts", summary="微信联系人", description="获取微信联系人列表")
 async def wechat_contacts():
     """获取微信联系人列表"""
     data = channel_router.wechat.get_contacts()
@@ -223,7 +223,7 @@ async def wechat_contacts():
 # ===== 飞书端点(静态路径)=====
 
 
-@router.post("/feishu/configure")
+@router.post("/feishu/configure", summary="配置飞书凭证", description="配置飞书应用凭证(app_id/app_secret/verification_token)")
 async def feishu_configure(req: FeishuConfigureRequest):
     """配置飞书应用凭证"""
     data = channel_router.feishu.configure(
@@ -234,7 +234,7 @@ async def feishu_configure(req: FeishuConfigureRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/feishu/send-text")
+@router.post("/feishu/send-text", summary="飞书发送文本", description="通过飞书 Webhook 发送文本消息")
 async def feishu_send_text(req: FeishuSendTextRequest):
     """通过飞书 Webhook 发送文本消息"""
     result = await channel_router.feishu.send_text(req.webhook_url, req.text)
@@ -246,7 +246,7 @@ async def feishu_send_text(req: FeishuSendTextRequest):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.post("/feishu/send-card")
+@router.post("/feishu/send-card", summary="飞书发送卡片", description="通过飞书 Webhook 发送卡片消息")
 async def feishu_send_card(req: FeishuSendCardRequest):
     """通过飞书 Webhook 发送卡片消息"""
     result = await channel_router.feishu.send_card(req.webhook_url, req.card)
@@ -258,7 +258,7 @@ async def feishu_send_card(req: FeishuSendCardRequest):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.get("/feishu/status")
+@router.get("/feishu/status", summary="飞书状态", description="获取飞书渠道状态和配置信息")
 async def feishu_status():
     """获取飞书渠道状态"""
     data = channel_router.feishu.get_status()
@@ -268,14 +268,14 @@ async def feishu_status():
 # ===== Telegram 端点(静态路径)=====
 
 
-@router.post("/telegram/configure")
+@router.post("/telegram/configure", summary="配置 Telegram Bot", description="配置 Telegram Bot Token")
 async def telegram_configure(req: TelegramConfigureRequest):
     """配置 Telegram Bot Token"""
     data = channel_router.telegram.configure(token=req.token)
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/telegram/send-text")
+@router.post("/telegram/send-text", summary="Telegram 发送文本", description="通过 Telegram Bot 发送文本消息")
 async def telegram_send_text(req: TelegramSendTextRequest):
     """通过 Telegram Bot 发送文本消息"""
     result = await channel_router.telegram.send_text(req.chat_id, req.text)
@@ -287,7 +287,7 @@ async def telegram_send_text(req: TelegramSendTextRequest):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.get("/telegram/status")
+@router.get("/telegram/status", summary="Telegram 状态", description="获取 Telegram 渠道状态和配置信息")
 async def telegram_status():
     """获取 Telegram 渠道状态"""
     data = channel_router.telegram.get_status()
@@ -297,14 +297,14 @@ async def telegram_status():
 # ===== Discord 端点(静态路径)=====
 
 
-@router.post("/discord/configure")
+@router.post("/discord/configure", summary="配置 Discord Webhook", description="配置 Discord Webhook URL")
 async def discord_configure(req: DiscordConfigureRequest):
     """配置 Discord Webhook URL"""
     data = channel_router.discord.configure(webhook_url=req.webhook_url)
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/discord/send-text")
+@router.post("/discord/send-text", summary="Discord 发送文本", description="通过 Discord Webhook 发送文本消息")
 async def discord_send_text(req: DiscordSendTextRequest):
     """通过 Discord Webhook 发送文本消息"""
     result = await channel_router.discord.send_text(req.text)
@@ -316,7 +316,7 @@ async def discord_send_text(req: DiscordSendTextRequest):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.get("/discord/status")
+@router.get("/discord/status", summary="Discord 状态", description="获取 Discord 渠道状态和配置信息")
 async def discord_status():
     """获取 Discord 渠道状态"""
     data = channel_router.discord.get_status()
@@ -326,7 +326,7 @@ async def discord_status():
 # ===== 钉钉端点(静态路径)=====
 
 
-@router.post("/dingtalk/configure")
+@router.post("/dingtalk/configure", summary="配置钉钉机器人", description="配置钉钉机器人 Webhook 和签名密钥")
 async def dingtalk_configure(req: DingTalkConfigureRequest):
     """配置钉钉机器人 Webhook 和签名密钥"""
     data = channel_router.dingtalk.configure(
@@ -336,7 +336,7 @@ async def dingtalk_configure(req: DingTalkConfigureRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/dingtalk/send-text")
+@router.post("/dingtalk/send-text", summary="钉钉发送文本", description="通过钉钉机器人发送文本消息")
 async def dingtalk_send_text(req: DingTalkSendTextRequest):
     """通过钉钉机器人发送文本消息"""
     result = await channel_router.dingtalk.send_text(req.text)
@@ -348,7 +348,7 @@ async def dingtalk_send_text(req: DingTalkSendTextRequest):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.get("/dingtalk/status")
+@router.get("/dingtalk/status", summary="钉钉状态", description="获取钉钉渠道状态和配置信息")
 async def dingtalk_status():
     """获取钉钉渠道状态"""
     data = channel_router.dingtalk.get_status()
@@ -358,14 +358,14 @@ async def dingtalk_status():
 # ===== 企业微信端点(静态路径)=====
 
 
-@router.post("/wecom/configure")
+@router.post("/wecom/configure", summary="配置企业微信", description="配置企业微信群机器人 Webhook")
 async def wecom_configure(req: WeComConfigureRequest):
     """配置企业微信群机器人 Webhook"""
     data = channel_router.wecom.configure(webhook_url=req.webhook_url)
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/wecom/send-text")
+@router.post("/wecom/send-text", summary="企业微信发送文本", description="通过企业微信群机器人发送文本消息")
 async def wecom_send_text(req: WeComSendTextRequest):
     """通过企业微信群机器人发送文本消息"""
     result = await channel_router.wecom.send_text(req.text)
@@ -377,7 +377,7 @@ async def wecom_send_text(req: WeComSendTextRequest):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.get("/wecom/status")
+@router.get("/wecom/status", summary="企业微信状态", description="获取企业微信渠道状态和配置信息")
 async def wecom_status():
     """获取企业微信渠道状态"""
     data = channel_router.wecom.get_status()
@@ -387,7 +387,7 @@ async def wecom_status():
 # ===== 动态路径(必须在所有静态路径之后)=====
 
 
-@router.post("/{channel_id}/test")
+@router.post("/{channel_id}/test", summary="测试渠道连通性", description="测试指定渠道的连通性(发送测试消息)")
 async def test_channel(channel_id: int):
     """测试渠道连通性"""
     data = await channel_router.test_channel(channel_id)
@@ -399,7 +399,7 @@ async def test_channel(channel_id: int):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/{channel_id}")
+@router.get("/{channel_id}", summary="获取渠道", description="获取单个渠道的详细信息")
 async def get_channel_by_id(channel_id: int):
     """获取单个渠道"""
     data = await channel_router.get_channel(channel_id)
@@ -411,7 +411,7 @@ async def get_channel_by_id(channel_id: int):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.put("/{channel_id}")
+@router.put("/{channel_id}", summary="更新渠道", description="更新渠道配置(名称、配置、启用状态)")
 async def update_channel(channel_id: int, req: ChannelUpdateRequest):
     """更新渠道
 
@@ -460,7 +460,7 @@ async def update_channel(channel_id: int, req: ChannelUpdateRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.delete("/{channel_id}")
+@router.delete("/{channel_id}", summary="删除渠道", description="删除指定的渠道配置")
 async def delete_channel(channel_id: int):
     """删除渠道"""
     deleted = await channel_router.delete_channel(channel_id)

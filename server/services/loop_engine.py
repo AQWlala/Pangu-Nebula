@@ -11,6 +11,11 @@
 - 每次迭代检查 status,如为 "cancelled" 则停止
 - 连续 2 次评分相同或更低,停止循环(避免无效循环)
 - 记录 budget_used
+
+T1.10: IDMM 集成 - 反思↔保活闭环
+- feedback_to_idmm: 反思结果反馈到 IDMM,触发停滞检测
+- trigger_reflection_via_idmm: IDMM 检测停滞后注入 sidecar,触发新一轮反思
+- run_loop_with_idmm: 完整自进化闭环(执行→评估→反思→IDMM保活→再执行)
 """
 
 import json
@@ -24,6 +29,7 @@ from ..db.engine import async_session
 from ..db.orm import LoopIteration, Persona
 from ..providers.base import Message as ProviderMessage
 from ..providers.registry import get_provider, is_registered
+from .idmm import IDMMEngine
 
 
 # loop_guard: 最大迭代次数硬上限
@@ -54,6 +60,10 @@ def _loop_to_dict(loop: LoopIteration) -> dict:
 
 class LoopEngine:
     """Loop 循环迭代引擎:执行→评估→改进→再执行"""
+
+    def __init__(self) -> None:
+        # T1.10: 集成 IDMM 三层故障保活引擎
+        self._idmm = IDMMEngine()
 
     # ===== 对外接口 =====
 
@@ -299,6 +309,152 @@ class LoopEngine:
             await session.delete(loop)
             await session.commit()
             return True
+
+    # ===== T1.10: IDMM 集成 - 反思↔保活闭环 =====
+
+    async def feedback_to_idmm(
+        self,
+        loop_id: int,
+        score: float,
+        evaluation: str,
+        conv_id: str | None = None,
+    ) -> dict:
+        """反思结果反馈到 IDMM,触发停滞检测
+
+        将反思结果(评分+评估)记录到 IDMM 会话状态,并检测是否停滞。
+        评分提升视为有进展(progress=True),否则视为无进展。
+
+        闭环方向: 反思 → IDMM(记录+检测)
+
+        Args:
+            loop_id: 循环任务 ID
+            score: 本次迭代评分(0-10)
+            evaluation: 评估文本
+            conv_id: 会话 ID,默认使用 f"loop-{loop_id}"
+
+        Returns:
+            停滞检测报告 dict
+        """
+        cid = conv_id or f"loop-{loop_id}"
+        # 取上一次评分判断是否有进展
+        state = self._idmm.get_conversation_state(cid)
+        last_score = state[-1].get("score") if state else None
+        progress = last_score is None or score > last_score
+        # 记录本轮到 IDMM 会话状态
+        self._idmm.record_round(cid, evaluation, score=score, progress=progress)
+        # 触发停滞检测
+        updated_state = self._idmm.get_conversation_state(cid)
+        report = await self._idmm.check_stagnation(updated_state, conv_id=cid)
+        return {
+            "conv_id": report.conv_id,
+            "stagnated": report.stagnated,
+            "rounds_without_progress": report.rounds_without_progress,
+            "threshold": report.threshold,
+            "score": score,
+            "progress": progress,
+        }
+
+    async def trigger_reflection_via_idmm(
+        self,
+        loop_id: int,
+        conv_id: str | None = None,
+        threshold: int = 3,
+    ) -> dict:
+        """IDMM 保活触发反思: 检测停滞后注入 sidecar 提示
+
+        如果检测到停滞,生成 sidecar 提示并注入到会话中,
+        以打破停滞并触发新一轮反思。
+
+        闭环方向: IDMM(检测+注入) → 反思
+
+        Args:
+            loop_id: 循环任务 ID
+            conv_id: 会话 ID,默认使用 f"loop-{loop_id}"
+            threshold: 停滞阈值
+
+        Returns:
+            包含 stagnated / hint / injected 的 dict
+        """
+        cid = conv_id or f"loop-{loop_id}"
+        state = self._idmm.get_conversation_state(cid)
+        report = await self._idmm.check_stagnation(
+            state, threshold=threshold, conv_id=cid
+        )
+
+        if not report.stagnated:
+            return {
+                "stagnated": False,
+                "hint": None,
+                "injected": False,
+                "conv_id": cid,
+            }
+
+        # 生成 sidecar 提示(基于停滞轮数)
+        hint = (
+            f"检测到决策停滞(连续 {report.rounds_without_progress} 轮无进展)。"
+            f"请尝试换个角度思考,或回顾目标并调整策略。"
+        )
+        # 注入 sidecar 到会话状态
+        new_state = await self._idmm.inject_sidecar(state, hint, conv_id=cid)
+        # 更新会话状态(sidecar 消息 progress=True,打破停滞)
+        self._idmm.set_conversation_state(cid, new_state)
+
+        return {
+            "stagnated": True,
+            "hint": hint,
+            "injected": True,
+            "conv_id": cid,
+            "rounds_without_progress": report.rounds_without_progress,
+        }
+
+    async def _call_llm_with_l1_retry(
+        self,
+        persona: Persona,
+        messages: list[ProviderMessage],
+        max_retries: int = 2,
+        timeout: float = 60.0,
+    ) -> str:
+        """用 L1 重试包装的 LLM 调用
+
+        将 _call_llm 包装在 IDMM L1 规则层中,提供超时检测和指数退避重试。
+        LLM 调用通常对网络超时敏感,L1 重试可提升调用可靠性。
+        """
+        async def _task():
+            return await self._call_llm(persona, messages)
+
+        result = await self._idmm.execute_with_l1_retry(
+            _task,
+            max_retries=max_retries,
+            timeout=timeout,
+            base_delay=0.5,  # LLM 调用退避较短
+        )
+        if not result.success:
+            # L1 重试失败,抛出最后一个错误
+            raise RuntimeError(f"L1 重试失败: {result.last_error}")
+        return result.result
+
+    async def run_loop_with_idmm(self, loop_id: int) -> AsyncIterator[dict]:
+        """完整自进化闭环: 执行→评估→反思→IDMM保活→再执行
+
+        在 run_loop 基础上集成 IDMM 三层保活:
+        - 每次迭代后,将反思结果反馈到 IDMM (feedback_to_idmm)
+        - 检测到停滞后,注入 sidecar 提示以恢复 (trigger_reflection_via_idmm)
+        - 产出 IDMM 事件(idmm_feedback, idmm_sidecar)穿插在迭代事件之间
+
+        验收: ① 反思→保活→反思闭环可运行
+        """
+        async for event in self.run_loop(loop_id):
+            yield event
+            # 在迭代事件后进行 IDMM 反馈
+            if event.get("type") == "iteration":
+                score = event.get("score", 0)
+                evaluation = event.get("evaluation", "")
+                feedback = await self.feedback_to_idmm(loop_id, score, evaluation)
+                yield {"type": "idmm_feedback", "loop_id": loop_id, **feedback}
+                # 如果检测到停滞,触发 sidecar 注入
+                if feedback.get("stagnated"):
+                    trigger = await self.trigger_reflection_via_idmm(loop_id)
+                    yield {"type": "idmm_sidecar", "loop_id": loop_id, **trigger}
 
     # ===== 辅助方法 =====
 

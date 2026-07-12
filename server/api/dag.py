@@ -41,6 +41,13 @@ class DAGReject(BaseModel):
     reason: str
 
 
+class DAGNodePrecheck(BaseModel):
+    """节点级预检请求 (T2.4) - 覆盖单个节点的 model 和 brief"""
+
+    model: str | None = None
+    brief: str | None = None
+
+
 @router.get("", summary="DAG 模块信息", description="返回 DAG 编排数据模型的模块信息和端点列表")
 async def module_info():
     return {
@@ -52,6 +59,9 @@ async def module_info():
                 "POST /dag", "GET /dag/list", "GET /dag/{dag_id}",
                 "PUT /dag/{dag_id}/node/{node_id}",
                 "POST /dag/{dag_id}/approve", "POST /dag/{dag_id}/reject",
+                "GET /dag/{dag_id}/approval-status",
+                "POST /dag/{dag_id}/reset-planning",
+                "POST /dag/{dag_id}/precheck",
             ],
         },
         "error": None,
@@ -124,5 +134,61 @@ async def reject_dag(
         raise HTTPException(
             status_code=404,
             detail={"ok": False, "data": None, "error": "DAG not found"},
+        )
+    return {"ok": True, "data": data, "error": None}
+
+
+@router.get(
+    "/{dag_id}/approval-status",
+    summary="获取审批状态",
+    description="返回 DAG 的审批状态,包括 plan_ready、待审批节点列表、整体状态",
+)
+async def get_approval_status(
+    dag_id: str, session: AsyncSession = Depends(get_session)
+):
+    data = await _service.get_approval_status(session, dag_id)
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"ok": False, "data": None, "error": "DAG not found"},
+        )
+    return {"ok": True, "data": data, "error": None}
+
+
+@router.post(
+    "/{dag_id}/reset-planning",
+    summary="回退到规划状态",
+    description="将 DAG 中所有 skipped 节点重置为 pending,以便重新规划",
+)
+async def reset_to_planning(
+    dag_id: str, session: AsyncSession = Depends(get_session)
+):
+    data = await _service.reset_to_planning(session, dag_id)
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"ok": False, "data": None, "error": "DAG not found"},
+        )
+    return {"ok": True, "data": data, "error": None}
+
+
+@router.post(
+    "/{dag_id}/node/{node_id}/precheck",
+    summary="节点级预检",
+    description="为指定节点设置 model/brief override 并执行预检,通过后才可执行",
+)
+async def precheck_node(
+    dag_id: str,
+    node_id: str,
+    req: DAGNodePrecheck,
+    session: AsyncSession = Depends(get_session),
+):
+    data = await _service.precheck_node(
+        session, dag_id, node_id, req.model, req.brief
+    )
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"ok": False, "data": None, "error": "Node not found"},
         )
     return {"ok": True, "data": data, "error": None}

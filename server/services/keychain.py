@@ -100,6 +100,7 @@ else:
     # Linux / macOS: no OS-level key encryption available without extra deps.
     # Use restrictive file permissions (owner-read-only) as the primary
     # defence; the key is base64-encoded at rest.
+    # 这是 DPAPI 不可用时的 fallback 模式 (0600 文件权限保护)
 
     def _platform_protect(data: bytes) -> bytes:
         """Passthrough; file permissions provide the security boundary."""
@@ -108,6 +109,92 @@ else:
     def _platform_unprotect(data: bytes) -> bytes:
         """Passthrough."""
         return data
+
+
+def _get_platform_protection_mode() -> str:
+    """返回当前平台的主密钥保护模式 (T4.7/T4.8 跨平台支持)
+
+    Returns:
+        "dpapi" - Windows DPAPI (用户账户绑定)
+        "file_0600" - Linux/macOS 0600 文件权限 fallback 模式
+        "env_only" - 仅环境变量 (无文件存储)
+    """
+    if _IS_WINDOWS:
+        return "dpapi"
+    return "file_0600"
+
+
+def _verify_master_key_file_permissions(file_path: Path) -> dict:
+    """验证主密钥文件权限是否符合 0600 fallback 要求 (T4.7/T4.8)
+
+    在 Linux/macOS 上,主密钥文件必须为 0600 (owner read/write only)。
+    此函数用于:
+    - 启动时验证 fallback 模式生效
+    - 测试中确认权限正确设置
+
+    Returns:
+        {
+            "platform": "windows" | "linux" | "macos",
+            "mode": "dpapi" | "file_0600",
+            "file_exists": bool,
+            "permissions_ok": bool,
+            "current_mode": str | None,  # 八进制权限字符串,如 "0600"
+            "expected_mode": str | None,
+        }
+    """
+    import platform
+
+    if _IS_WINDOWS:
+        return {
+            "platform": "windows",
+            "mode": "dpapi",
+            "file_exists": file_path.exists(),
+            "permissions_ok": True,  # Windows 由 DPAPI 保护,无需文件权限
+            "current_mode": None,
+            "expected_mode": None,
+        }
+
+    system = platform.system().lower()
+    platform_name = "macos" if system == "darwin" else "linux"
+
+    result = {
+        "platform": platform_name,
+        "mode": "file_0600",
+        "file_exists": file_path.exists(),
+        "permissions_ok": False,
+        "current_mode": None,
+        "expected_mode": "0600",
+    }
+
+    if not file_path.exists():
+        # 文件不存在时,首次写入会被 _write_master_key_file 设为 0600
+        result["permissions_ok"] = True
+        return result
+
+    try:
+        file_stat = file_path.stat()
+        # 仅取 owner/group/others 的 rwx 位
+        perm_bits = file_stat.st_mode & 0o777
+        result["current_mode"] = oct(perm_bits)
+
+        # 期望: 0600 (owner rw, group/other 无权限)
+        # 也接受 0400 (owner read only) 作为更严格模式
+        expected_bits = stat.S_IRUSR | stat.S_IWUSR  # 0600
+        read_only_bits = stat.S_IRUSR  # 0400
+
+        # 检查无 group/other 访问权限
+        no_group_other = (perm_bits & 0o077) == 0
+        # 检查 owner 至少有读权限
+        owner_can_read = (perm_bits & stat.S_IRUSR) != 0
+        # 不能超出 0600 (允许 0400 更严格)
+        within_expected = (perm_bits & ~expected_bits) == 0 or perm_bits == read_only_bits
+
+        result["permissions_ok"] = no_group_other and owner_can_read and within_expected
+    except OSError:
+        # 文件读取失败,无法验证
+        result["permissions_ok"] = False
+
+    return result
 
 
 class Keychain:
@@ -357,6 +444,22 @@ class Keychain:
 
     def is_available(self) -> bool:
         return _CRYPTO_AVAILABLE
+
+    # ------------------------------------------------------------------
+    # 平台支持信息 (T4.7/T4.8 跨平台)
+    # ------------------------------------------------------------------
+
+    def get_platform_protection_mode(self) -> str:
+        """返回当前主密钥保护模式 (供前端 / 测试使用)"""
+        return _get_platform_protection_mode()
+
+    def verify_master_key_security(self) -> dict:
+        """验证主密钥文件的当前保护状态 (T4.7/T4.8 跨平台支持)
+
+        在 Linux/macOS 上检查文件权限是否为 0600 (DPAPI fallback)。
+        Windows 上由 DPAPI 自动保护,无需文件权限检查。
+        """
+        return _verify_master_key_file_permissions(self._master_key_file)
 
 
 # Module-level singleton

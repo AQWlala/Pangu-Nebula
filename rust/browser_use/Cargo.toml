@@ -1,0 +1,22 @@
+[package]
+name = "browser_use"
+version = "0.1.0"
+edition = "2021"
+description = "Pangu Nebula Browser Use Rust 模块 - 骨架(实际功能由 Python mock 提供)"
+
+[lib]
+name = "browser_use"
+crate-type = ["cdylib"]
+
+[dependencies]
+# PyO3: Python 互操作
+pyo3 = { version = "0.22", features = ["extension-module"] }
+# 以下依赖为未来实现预留,当前骨架不强制启用
+# chromiumoxide = "0.7"   # CDP 客户端
+# tokio = { version = "1", features = ["full"] }
+# serde = { version = "1", features = ["derive"] }
+# serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = true

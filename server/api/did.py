@@ -86,7 +86,7 @@ async def verify_did(req: DidVerifyRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/list")
+@router.get("/list", summary="列出 DID", description="列出所有 DID,可按 Persona 过滤")
 async def list_dids(
     persona_id: int | None = Query(None, description="按 Persona 过滤"),
 ):
@@ -98,7 +98,7 @@ async def list_dids(
 # ===== 脱敏端点(静态路径,在 /{did_id} 之前) =====
 
 
-@router.post("/redact")
+@router.post("/redact", summary="脱敏处理", description="对文本中的敏感信息进行替换脱敏")
 async def redact_text(req: RedactRequest):
     """脱敏处理:对文本中的敏感信息进行替换"""
     data = redactor.redact(
@@ -109,7 +109,7 @@ async def redact_text(req: RedactRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/detect")
+@router.post("/detect", summary="检测敏感信息", description="检测文本中的敏感信息 (不脱敏,返回原始匹配内容)")
 async def detect_sensitive(
     req: RedactRequest,
 ):
@@ -121,7 +121,7 @@ async def detect_sensitive(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/redact/rules")
+@router.get("/redact/rules", summary="列出脱敏规则", description="列出所有可用的脱敏规则")
 async def list_redact_rules():
     """列出所有可用脱敏规则"""
     data = redactor.list_rules()
@@ -131,7 +131,7 @@ async def list_redact_rules():
 # ===== DID 端点(动态路径) =====
 
 
-@router.get("/{did_id}")
+@router.get("/{did_id}", summary="获取 DID", description="获取单个 DID 的详细信息")
 async def get_did_by_id(did_id: int):
     """获取单个 DID"""
     data = await did_service.get_did(did_id)
@@ -142,7 +142,7 @@ async def get_did_by_id(did_id: int):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.delete("/{did_id}")
+@router.delete("/{did_id}", summary="删除 DID", description="删除指定的 DID")
 async def delete_did(did_id: int):
     """删除 DID"""
     deleted = await did_service.delete_did(did_id)
@@ -153,7 +153,7 @@ async def delete_did(did_id: int):
     return {"ok": True, "data": {"id": did_id, "deleted": True}, "error": None}
 
 
-@router.post("/{did_id}/deactivate")
+@router.post("/{did_id}/deactivate", summary="停用 DID", description="停用指定的 DID (active=False)")
 async def deactivate_did(did_id: int):
     """停用 DID(active=False)"""
     data = await did_service.deactivate_did(did_id)

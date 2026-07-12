@@ -178,7 +178,7 @@ async def create_acl_rule(req: AclRuleCreate):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/acl/rules/{rule_id}")
+@router.get("/acl/rules/{rule_id}", summary="获取 ACL 规则", description="获取单条 ACL 规则的详细信息")
 async def get_acl_rule(rule_id: int):
     """获取单条规则"""
     async with async_session() as session:
@@ -191,7 +191,7 @@ async def get_acl_rule(rule_id: int):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.put("/acl/rules/{rule_id}")
+@router.put("/acl/rules/{rule_id}", summary="更新 ACL 规则", description="更新 ACL 规则(仅更新提供的字段)")
 async def update_acl_rule(rule_id: int, req: AclRuleUpdate):
     """更新规则"""
     async with async_session() as session:
@@ -208,7 +208,7 @@ async def update_acl_rule(rule_id: int, req: AclRuleUpdate):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.delete("/acl/rules/{rule_id}")
+@router.delete("/acl/rules/{rule_id}", summary="删除 ACL 规则", description="删除指定的 ACL 规则")
 async def delete_acl_rule(rule_id: int):
     """删除规则"""
     async with async_session() as session:
@@ -231,7 +231,7 @@ async def check_injection(req: InjectionCheckRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/injection/clean")
+@router.post("/injection/clean", summary="输入清洗", description="对文本进行清洗,移除潜在的注入攻击内容")
 async def clean_injection(req: InjectionCleanRequest):
     """输入清洗
 
@@ -254,14 +254,14 @@ async def check_ssrf(req: SsrfCheckRequest):
 # ===== 密钥管理 =====
 
 
-@router.get("/keychain")
+@router.get("/keychain", summary="列出密钥", description="列出所有密钥名称(不返回值)")
 async def list_keychain_keys():
     """列出所有密钥名称(不返回值)"""
     data = await keychain.list_keys()
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/keychain")
+@router.post("/keychain", summary="存储密钥", description="存储密钥到密钥库(加密保存)")
 async def store_keychain_key(req: KeychainStoreRequest):
     """存储密钥"""
     if not keychain.is_available():
@@ -282,7 +282,7 @@ async def store_keychain_key(req: KeychainStoreRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/keychain/get")
+@router.post("/keychain/get", summary="获取密钥", description="获取密钥值(静态路由,必须在 /keychain/{key} 之前)")
 async def get_keychain_key(req: KeychainGetRequest):
     """获取密钥(静态路由,必须在 /keychain/{key} 之前)"""
     if not keychain.is_available():
@@ -298,7 +298,7 @@ async def get_keychain_key(req: KeychainGetRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.delete("/keychain/{key}")
+@router.delete("/keychain/{key}", summary="删除密钥", description="删除指定的密钥")
 async def delete_keychain_key(key: str):
     """删除密钥"""
     async with async_session() as session:
@@ -314,7 +314,7 @@ async def delete_keychain_key(key: str):
 # ===== 密钥轮换 =====
 
 
-@router.get("/key-rotation/history")
+@router.get("/key-rotation/history", summary="密钥轮换历史", description="获取密钥轮换历史记录(静态路由)")
 async def get_key_rotation_history():
     """获取密钥历史(静态路由,必须在 /key-rotation 相关动态路由之前)"""
     async with async_session() as session:
@@ -322,7 +322,7 @@ async def get_key_rotation_history():
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/key-rotation")
+@router.post("/key-rotation", summary="密钥轮换", description="执行密钥轮换(可强制轮换)")
 async def rotate_keys(req: KeyRotationRequest):
     """执行密钥轮换"""
     async with async_session() as session:
@@ -335,13 +335,13 @@ async def rotate_keys(req: KeyRotationRequest):
 # ===== 国密算法 (SM2/SM4) =====
 
 
-@router.get("/national-crypto/status")
+@router.get("/national-crypto/status", summary="国密支持状态", description="获取国密算法(SM2/SM4)的支持状态和当前模式")
 async def get_national_crypto_status():
     """获取国密算法支持状态"""
     return {"ok": True, "data": national_crypto.get_status(), "error": None}
 
 
-@router.post("/national-crypto/sm2-generate")
+@router.post("/national-crypto/sm2-generate", summary="SM2 生成密钥对", description="生成 SM2 非对称密钥对(私钥 + 公钥)")
 async def sm2_generate_keypair():
     """SM2 生成密钥对"""
     private_key, public_key = national_crypto.sm2_generate_keypair()
@@ -356,7 +356,7 @@ async def sm2_generate_keypair():
     }
 
 
-@router.post("/national-crypto/sm2-encrypt")
+@router.post("/national-crypto/sm2-encrypt", summary="SM2 加密", description="使用 SM2 公钥加密数据,返回 base64 编码的密文")
 async def sm2_encrypt(req: SM2EncryptRequest):
     """SM2 加密
 
@@ -380,7 +380,7 @@ async def sm2_encrypt(req: SM2EncryptRequest):
     }
 
 
-@router.post("/national-crypto/sm2-decrypt")
+@router.post("/national-crypto/sm2-decrypt", summary="SM2 解密", description="使用 SM2 私钥解密 base64 编码的密文")
 async def sm2_decrypt(req: SM2DecryptRequest):
     """SM2 解密
 
@@ -403,7 +403,7 @@ async def sm2_decrypt(req: SM2DecryptRequest):
     }
 
 
-@router.post("/national-crypto/sm4-encrypt")
+@router.post("/national-crypto/sm4-encrypt", summary="SM4 加密", description="使用 SM4 对称密钥加密数据,返回 base64 编码的密文")
 async def sm4_encrypt(req: SM4EncryptRequest):
     """SM4 对称加密
 
@@ -428,7 +428,7 @@ async def sm4_encrypt(req: SM4EncryptRequest):
     }
 
 
-@router.post("/national-crypto/sm4-decrypt")
+@router.post("/national-crypto/sm4-decrypt", summary="SM4 解密", description="使用 SM4 对称密钥解密 base64 编码的密文")
 async def sm4_decrypt(req: SM4DecryptRequest):
     """SM4 对称解密
 
@@ -455,13 +455,13 @@ async def sm4_decrypt(req: SM4DecryptRequest):
 # ===== DLP 数据防泄漏引擎 =====
 
 
-@router.get("/dlp/status")
+@router.get("/dlp/status", summary="DLP 引擎状态", description="获取 DLP 数据防泄漏引擎的状态")
 async def get_dlp_status():
     """获取 DLP 引擎状态"""
     return {"ok": True, "data": dlp_engine.get_status(), "error": None}
 
 
-@router.post("/dlp/scan")
+@router.post("/dlp/scan", summary="扫描敏感数据", description="扫描文本中的敏感数据(返回 findings 列表)")
 async def dlp_scan(req: DLPScanRequest):
     """扫描文本中的敏感数据
 
@@ -479,7 +479,7 @@ async def dlp_scan(req: DLPScanRequest):
     }
 
 
-@router.post("/dlp/mask")
+@router.post("/dlp/mask", summary="DLP 脱敏", description="对文本进行脱敏处理(partial/full/hash 策略)")
 async def dlp_mask(req: DLPMaskRequest):
     """脱敏处理
 
@@ -500,7 +500,7 @@ async def dlp_mask(req: DLPMaskRequest):
     }
 
 
-@router.post("/dlp/classify")
+@router.post("/dlp/classify", summary="分类文档", description="分类文档,返回最高敏感级别和命中统计")
 async def dlp_classify(req: DLPScanRequest):
     """分类文档(返回最高敏感级别)"""
     classification = dlp_engine.classify(req.text)
@@ -520,7 +520,7 @@ async def dlp_classify(req: DLPScanRequest):
     }
 
 
-@router.get("/dlp/audit-log")
+@router.get("/dlp/audit-log", summary="DLP 审计日志", description="获取 DLP 脱敏操作的审计日志")
 async def get_dlp_audit_log(limit: int = Query(100, ge=1, le=1000)):
     """获取 DLP 脱敏审计日志"""
     log = dlp_engine.get_audit_log(limit=limit)

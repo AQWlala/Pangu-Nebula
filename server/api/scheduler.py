@@ -50,7 +50,7 @@ async def get_scheduler():
     }
 
 
-@router.get("/status")
+@router.get("/status", summary="调度器状态", description="获取调度器的运行状态(是否可用、是否运行中)")
 async def get_status():
     """获取调度器状态"""
     try:
@@ -60,7 +60,7 @@ async def get_status():
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/start")
+@router.post("/start", summary="启动调度器", description="启动调度器(基于 APScheduler)")
 async def start_scheduler():
     """启动调度器"""
     try:
@@ -79,7 +79,7 @@ async def start_scheduler():
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/stop")
+@router.post("/stop", summary="停止调度器", description="停止调度器运行")
 async def stop_scheduler():
     """停止调度器"""
     try:
@@ -128,7 +128,7 @@ async def create_job(req: SchedulerJobCreateRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/jobs/{job_id}")
+@router.get("/jobs/{job_id}", summary="获取定时任务", description="获取单个定时任务的详细信息")
 async def get_job(job_id: int):
     """获取单个定时任务"""
     try:
@@ -146,7 +146,7 @@ async def get_job(job_id: int):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.put("/jobs/{job_id}")
+@router.put("/jobs/{job_id}", summary="更新定时任务", description="更新定时任务(仅更新提供的字段)")
 async def update_job(job_id: int, req: SchedulerJobUpdateRequest):
     """更新定时任务(仅更新提供的字段)"""
     try:
@@ -171,7 +171,7 @@ async def update_job(job_id: int, req: SchedulerJobUpdateRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.delete("/jobs/{job_id}")
+@router.delete("/jobs/{job_id}", summary="删除定时任务", description="删除指定的定时任务")
 async def delete_job(job_id: int):
     """删除定时任务"""
     try:
@@ -189,7 +189,7 @@ async def delete_job(job_id: int):
     return {"ok": True, "data": {"id": job_id, "deleted": True}, "error": None}
 
 
-@router.post("/jobs/{job_id}/trigger")
+@router.post("/jobs/{job_id}/trigger", summary="手动触发任务", description="手动触发定时任务(立即执行一次)")
 async def trigger_job(job_id: int):
     """手动触发任务(立即执行一次)"""
     try:
@@ -207,7 +207,7 @@ async def trigger_job(job_id: int):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/jobs/{job_id}/history")
+@router.get("/jobs/{job_id}/history", summary="任务执行历史", description="获取任务的执行历史记录")
 async def get_job_history(
     job_id: int,
     limit: int = Query(20, ge=1, le=100, description="返回的历史记录数量"),

@@ -119,7 +119,7 @@ async def list_records(
     }
 
 
-@router.post("/records")
+@router.post("/records", summary="记录任务", description="记录新任务到任务记录表 (供蒸馏引擎分析成功/失败模式)")
 async def create_record(req: TaskRecordCreate):
     """记录新任务(供其他模块调用)"""
     async with async_session() as session:

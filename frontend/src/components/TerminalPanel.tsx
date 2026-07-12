@@ -174,7 +174,8 @@ export default function TerminalPanel() {
       )
       if (data?.mock && data.output) {
         // mock 模式直接显示返回的占位输出
-        setOutputLines((prev) => [...prev, data.output])
+        const out: string = data.output
+        setOutputLines((prev) => [...prev, out])
       }
     } catch (e: any) {
       setOutputLines((prev) => [...prev, `[错误] ${e?.message || '发送失败'}`])

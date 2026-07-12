@@ -193,6 +193,63 @@ class DAGService:
             "approved_nodes": approved,
         }
 
+    async def get_approval_status(
+        self, session: AsyncSession, dag_id: str
+    ) -> dict | None:
+        """获取 DAG 审批状态 (T2.3)
+
+        返回:
+          - plan_ready: 是否所有非 approval 节点已就绪(等待审批)
+          - pending_approvals: 待审批的 approval 节点列表
+          - approved_count / pending_count / rejected_count
+          - overall_status: pending / approved / rejected / no_approval_needed
+        """
+        result_set = await session.execute(
+            select(DAGNode).where(DAGNode.dag_id == dag_id).order_by(DAGNode.id)
+        )
+        nodes = result_set.scalars().all()
+        if not nodes:
+            return None
+
+        approval_nodes = [n for n in nodes if n.node_type == "approval"]
+        non_approval_pending = [
+            n for n in nodes
+            if n.node_type != "approval" and n.status == "pending"
+        ]
+
+        pending_approvals = [
+            _node_to_dict(n) for n in approval_nodes if n.status == "pending"
+        ]
+        approved_count = sum(1 for n in approval_nodes if n.status == "completed")
+        rejected_count = sum(1 for n in approval_nodes if n.status == "skipped")
+
+        # 判定整体状态
+        if not approval_nodes:
+            overall = "no_approval_needed"
+            plan_ready = False
+        elif pending_approvals:
+            # 还有待审批节点:plan_ready 取决于其他 pending 任务是否已就绪
+            # 简化策略: 只要有 pending approval 就视为 plan_ready=True (等待审批)
+            plan_ready = True
+            overall = "pending"
+        elif rejected_count > 0:
+            overall = "rejected"
+            plan_ready = False
+        else:
+            overall = "approved"
+            plan_ready = False
+
+        return {
+            "dag_id": dag_id,
+            "plan_ready": plan_ready,
+            "overall_status": overall,
+            "pending_approvals": pending_approvals,
+            "approved_count": approved_count,
+            "pending_count": len(pending_approvals),
+            "rejected_count": rejected_count,
+            "non_approval_pending_count": len(non_approval_pending),
+        }
+
     async def reject_dag(
         self, session: AsyncSession, dag_id: str, reason: str
     ) -> dict:
@@ -215,6 +272,97 @@ class DAGService:
             "action": "rejected",
             "reason": reason,
             "skipped_nodes": skipped,
+        }
+
+    async def reset_to_planning(
+        self, session: AsyncSession, dag_id: str
+    ) -> dict | None:
+        """reject 后回退到规划状态 (T2.3)
+
+        将 skipped 节点重置为 pending, 清空 result, 以便重新规划。
+        """
+        result_set = await session.execute(
+            select(DAGNode).where(DAGNode.dag_id == dag_id)
+        )
+        nodes = result_set.scalars().all()
+        if not nodes:
+            return None
+        reset = 0
+        for node in nodes:
+            if node.status == "skipped":
+                node.status = "pending"
+                node.result = None
+                reset += 1
+        await session.commit()
+        return {
+            "dag_id": dag_id,
+            "action": "reset_to_planning",
+            "reset_nodes": reset,
+        }
+
+    async def precheck_node(
+        self,
+        session: AsyncSession,
+        dag_id: str,
+        node_id: str,
+        model: str | None = None,
+        brief: str | None = None,
+    ) -> dict | None:
+        """节点级预检 (T2.4)
+
+        - 应用 model/brief override 到节点
+        - 验证 model 非空(若提供)
+        - 验证 brief 长度合理(若提供)
+        - 返回 precheck 结果(passed/issues)
+        - 通过后将节点 config 标记 precheck_passed=True
+        """
+        result_set = await session.execute(
+            select(DAGNode).where(
+                DAGNode.dag_id == dag_id, DAGNode.node_id == node_id
+            )
+        )
+        node = result_set.scalar_one_or_none()
+        if not node:
+            return None
+
+        issues: list[str] = []
+        # 应用 override
+        if model is not None:
+            model_stripped = model.strip()
+            if not model_stripped:
+                issues.append("model 不能为空字符串")
+            else:
+                node.model = model_stripped
+        if brief is not None:
+            brief_stripped = brief.strip()
+            if len(brief_stripped) > 2000:
+                issues.append("brief 长度超过 2000 字符")
+            else:
+                node.brief = brief_stripped
+
+        # 检查节点状态是否允许预检
+        if node.status not in ("pending",):
+            issues.append(f"节点状态 {node.status} 不允许预检(需 pending)")
+
+        # 检查 model 必须存在(节点级预检要求)
+        if not node.model:
+            issues.append("节点未指定 model,无法执行")
+
+        passed = len(issues) == 0
+        # 更新 config 标记预检结果
+        cfg = dict(node.config or {})
+        cfg["precheck_passed"] = passed
+        cfg["precheck_at"] = datetime.utcnow().isoformat()
+        node.config = cfg
+
+        await session.commit()
+        await session.refresh(node)
+        return {
+            "dag_id": dag_id,
+            "node_id": node_id,
+            "passed": passed,
+            "issues": issues,
+            "node": _node_to_dict(node),
         }
 
     async def list_dags(self, session: AsyncSession) -> list[dict]:

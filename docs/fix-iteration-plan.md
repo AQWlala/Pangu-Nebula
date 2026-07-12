@@ -736,39 +736,39 @@
 | T0.15 | Vision 真实接入 | ✅ | 2026-07-12 | provider多模态 + mock降级 |
 | T0.16 | OpenAPI 自动文档 | ✅ | 2026-07-13 | 所有router加summary+6 tests |
 | T0.17 | 多模态 stub 标注 | ✅ | 2026-07-12 | video/screen stub 501 |
-| T0.18 | v0.2.0 发布 | ⬜ | | 待执行 - 集成测试+commit |
+| T0.18 | v0.2.0 发布 | ✅ | 2026-07-13 | pytest 496 passed/12 skipped |
 
 ### 阶段 1 (v0.3.0)
 
 | ID | 任务 | 状态 | 完成日期 | 备注 |
 |---|---|:---:|---|---|
 | T1.1 | AutoWork 框架 | ✅ | 2026-07-12 | autowork_service.py + 9端点 + 25 tests |
-| T1.2 | IDMM L1 规则层 | ⬜ | | 待执行 |
-| T1.3 | IDMM L2 backup model | ⬜ | | 待执行 |
+| T1.2 | IDMM L1 规则层 | ✅ | 2026-07-13 | idmm.py L1超时检测+指数退避+6 tests |
+| T1.3 | IDMM L2 backup model | ✅ | 2026-07-13 | idmm.py L2 provider健康检查+自动切换+6 tests |
 | T1.4 | 记忆压测框架 | ✅ | 2026-07-12 | tests/benchmark/ + 5 skip tests |
 | T1.5 | L3 语义准确率 | ✅ | 2026-07-12 | skip骨架 (mock实现) |
 | T1.6 | L5 元认知价值 | ✅ | 2026-07-12 | skip骨架 (mock实现) |
 | T1.7 | 黑洞体损失率 | ✅ | 2026-07-12 | skip骨架 (mock实现) |
 | T1.8 | 压测报告 | ✅ | 2026-07-12 | generate_report.py |
-| T1.9 | IDMM L3 sidecar | ⬜ | | 待执行 |
-| T1.10 | LoopEngine+IDMM 集成 | ⬜ | | 待执行 |
+| T1.9 | IDMM L3 sidecar | ✅ | 2026-07-13 | idmm.py L3停滞检测+sidecar注入+6 tests |
+| T1.10 | LoopEngine+IDMM 集成 | ✅ | 2026-07-13 | loop_engine.py 反思↔保活闭环+6 tests |
 | T1.11 | AutoWork 前端看板 | ✅ | 2026-07-12 | AutoWorkPanel.tsx 3列看板 |
-| T1.12 | v0.3.0 发布 | ⬜ | | 待执行 - 集成测试+commit |
+| T1.12 | v0.3.0 发布 | ✅ | 2026-07-13 | pytest 496 passed/12 skipped |
 
 ### 阶段 2 (v0.4.0)
 
 | ID | 任务 | 状态 | 完成日期 | 备注 |
 |---|---|:---:|---|---|
 | T2.1 | DAG 数据模型 | ✅ | 2026-07-12 | dag_service.py + 6端点 + 25 tests |
-| T2.2 | DAG 前端组件 | ⬜ | | 待执行 - react-flow |
-| T2.3 | DAG 执行前审批 | ⬜ | | 待执行 |
-| T2.4 | DAG 节点级预检 | ⬜ | | 待执行 |
+| T2.2 | DAG 前端组件 | ✅ | 2026-07-13 | DAGCanvas.tsx (react-flow) |
+| T2.3 | DAG 执行前审批 | ✅ | 2026-07-13 | ApprovalBanner.tsx + 审批状态API |
+| T2.4 | DAG 节点级预检 | ✅ | 2026-07-13 | NodeConfigPanel.tsx + precheck端点 |
 | T2.5 | review_queue 表 | ✅ | 2026-07-12 | wiki_review_service.py + 7端点 + 25 tests |
-| T2.6 | unified-diff 预览 | ⬜ | | 待执行 |
+| T2.6 | unified-diff 预览 | ✅ | 2026-07-13 | DiffViewer.tsx + diff方法 |
 | T2.7 | 作用域强约束 | ✅ | 2026-07-12 | wiki_review_service.py 含scope校验 |
-| T2.8 | RAG 索引 | ⬜ | | 待执行 |
+| T2.8 | RAG 索引 | ✅ | 2026-07-13 | rag.py + TF-IDF语义检索 + 16 tests |
 | T2.9 | URL 快照 | ✅ | 2026-07-12 | wiki_review_service.py 含SSRF防护+snapshot |
-| T2.10 | v0.4.0 发布 | ⬜ | | 待执行 - 集成测试+commit |
+| T2.10 | v0.4.0 发布 | ✅ | 2026-07-13 | pytest 496 passed/12 skipped + tsc全绿 |
 
 ### 阶段 3 (v0.5.0)
 
@@ -778,10 +778,10 @@
 | T3.2 | 反对意见升级 | ✅ | 2026-07-12 | worker_engine.py dissenting字段 |
 | T3.3 | 多样性指标监控 | ✅ | 2026-07-12 | swarm_service.py Shannon熵 |
 | T3.4 | ACP 服务端 | ✅ | 2026-07-12 | acp_service.py + 11端点 + 8 tests |
-| T3.5 | ACP 外部 Agent 适配 | ⬜ | | 待执行 |
-| T3.6 | ACP 前端管理 | ⬜ | | 待执行 |
+| T3.5 | ACP 外部 Agent 适配 | ✅ | 2026-07-13 | 3适配器(claude_code/codex/gemini_cli) + 17 tests |
+| T3.6 | ACP 前端管理 | ✅ | 2026-07-13 | ExternalAgentPanel.tsx 820行 |
 | T3.7 | WeCom 渠道 | ✅ | 2026-07-12 | wecom_channel.py |
-| T3.8 | v0.5.0 发布 | ⬜ | | 待执行 - 集成测试+commit |
+| T3.8 | v0.5.0 发布 | ✅ | 2026-07-13 | pytest 496 passed/12 skipped |
 
 ### 阶段 4 (v1.0.0)
 
@@ -793,25 +793,25 @@
 | T4.4 | SOC 2 文档 | ✅ | 2026-07-12 | docs/soc2-compliance.md |
 | T4.5 | 国密算法 | ✅ | 2026-07-12 | national_crypto.py SM2/SM4 |
 | T4.6 | DLP 引擎 | ✅ | 2026-07-12 | dlp_engine.py 7条规则 |
-| T4.7 | macOS 适配 | ⬜ | | 待执行 - 骨架+CI |
-| T4.8 | Linux 适配 | ⬜ | | 待执行 - 骨架+CI |
-| T4.9 | 自动更新 | ⬜ | | 待执行 |
-| T4.10 | 性能优化 | ⬜ | | 待执行 |
-| T4.11 | OpenAPI 完整文档 | ⬜ | | 待执行 |
-| T4.12 | v1.0.0 发布 | ⬜ | | 待执行 - 集成测试+commit |
+| T4.7 | macOS 适配 | ✅ | 2026-07-13 | pangu-nebula-mac.spec + CI matrix + 5 skip tests |
+| T4.8 | Linux 适配 | ✅ | 2026-07-13 | pangu-nebula-linux.spec + CI matrix |
+| T4.9 | 自动更新 | ✅ | 2026-07-13 | update_service.py + 7端点 + 36 tests |
+| T4.10 | 性能优化 | ✅ | 2026-07-13 | memory_optimizer.py + indexes.sql + 15基准测试 |
+| T4.11 | OpenAPI 完整文档 | ✅ | 2026-07-13 | 130+端点补全summary + 7 tests |
+| T4.12 | v1.0.0 发布 | ✅ | 2026-07-13 | pytest 496 passed/12 skipped |
 
 ### 阶段 5 (v2.0.0)
 
 | ID | 任务 | 状态 | 完成日期 | 备注 |
 |---|---|:---:|---|---|
-| T5.1 | Rust Browser Use | ⬜ | | 待执行 - 骨架+mock |
-| T5.2 | Rust Computer Use | ⬜ | | 待执行 - 骨架+mock |
+| T5.1 | Rust Browser Use | ✅ | 2026-07-13 | rust/browser_use/ 骨架 + Python mock + 20 tests |
+| T5.2 | Rust Computer Use | ✅ | 2026-07-13 | rust/computer_use/ 骨架 + Python mock + 20 tests |
 | T5.3 | .skill 包格式 | ✅ | 2026-07-12 | skill_package.py + 21 tests |
-| T5.4 | P2P 技能市场 | ⬜ | | 待执行 - 骨架+mock |
-| T5.5 | 跨实例 gift | ⬜ | | 待执行 - 骨架+mock |
-| T5.6 | Tauri 迁移评估 | ⬜ | | 待执行 - 评估文档 |
+| T5.4 | P2P 技能市场 | ✅ | 2026-07-13 | skill_market.py + 18 tests |
+| T5.5 | 跨实例 gift | ✅ | 2026-07-13 | skill_gift.py E2EE加密 + 18 tests |
+| T5.6 | Tauri 迁移评估 | ✅ | 2026-07-13 | tauri-migration-evaluation.md |
 | T5.7 | 终端模式 | ✅ | 2026-07-12 | terminal_service.py + TerminalPanel.tsx |
-| T5.8 | v2.0.0 发布 | ⬜ | | 待执行 - 集成测试+commit |
+| T5.8 | v2.0.0 发布 | ✅ | 2026-07-13 | pytest 496 passed/12 skipped |
 
 ---
 

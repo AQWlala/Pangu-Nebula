@@ -49,7 +49,7 @@ async def get_oauth():
     }
 
 
-@router.get("/providers")
+@router.get("/providers", summary="列出 OAuth 提供商", description="列出支持的 OAuth 提供商及配置状态")
 async def list_providers():
     """列出支持的 OAuth 提供商及配置状态"""
     providers = oauth_service.list_providers()
@@ -102,7 +102,7 @@ async def callback(req: OAuthCallbackRequest):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.post("/refresh")
+@router.post("/refresh", summary="刷新 Token", description="使用 refresh_token 刷新访问令牌")
 async def refresh_token(req: OAuthRefreshRequest):
     """刷新 Token"""
     result = await token_manager.refresh_token(req.token_id)
@@ -121,14 +121,14 @@ async def refresh_token(req: OAuthRefreshRequest):
 # ===== Token 管理 =====
 
 
-@router.get("/tokens")
+@router.get("/tokens", summary="列出 Token", description="列出已存储的 Token,可按 provider 过滤")
 async def list_tokens(provider: str | None = None):
     """列出 Token (可按 provider 过滤)"""
     data = await token_manager.list_tokens(provider=provider)
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/tokens")
+@router.post("/tokens", summary="存储 Token", description="手动存储 Token (非 OAuth 流程,直接写入数据库)")
 async def store_token(req: TokenStoreRequest):
     """手动存储 Token (非 OAuth 流程,直接写入)"""
     data = await token_manager.store_token(
@@ -143,7 +143,7 @@ async def store_token(req: TokenStoreRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/tokens/{token_id}")
+@router.get("/tokens/{token_id}", summary="获取 Token", description="获取单个 Token 的详细信息")
 async def get_token(token_id: int):
     """获取单个 Token"""
     data = await token_manager.get_token(token_id)
@@ -154,7 +154,7 @@ async def get_token(token_id: int):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.delete("/tokens/{token_id}")
+@router.delete("/tokens/{token_id}", summary="删除 Token", description="删除指定的 Token 记录")
 async def delete_token(token_id: int):
     """删除 Token"""
     deleted = await token_manager.delete_token(token_id)
@@ -165,7 +165,7 @@ async def delete_token(token_id: int):
     return {"ok": True, "data": {"id": token_id, "deleted": True}, "error": None}
 
 
-@router.post("/tokens/{token_id}/revoke")
+@router.post("/tokens/{token_id}/revoke", summary="撤销 Token", description="撤销 Token (标记为过期,不可恢复)")
 async def revoke_token(token_id: int):
     """撤销 Token (标记为过期)"""
     revoked = await token_manager.revoke_token(token_id)

@@ -61,7 +61,7 @@ async def get_os_sense_overview():
 # ===== 剪贴板 =====
 
 
-@router.get("/clipboard/status")
+@router.get("/clipboard/status", summary="剪贴板状态", description="获取剪贴板监控的运行状态和库可用性")
 async def get_clipboard_status():
     """获取剪贴板监控状态"""
     data = clipboard_watcher.get_status()
@@ -93,14 +93,14 @@ async def start_clipboard_watcher(req: ClipboardWatcherConfig):
     return {"ok": True, "data": clipboard_watcher.get_status(), "error": None}
 
 
-@router.post("/clipboard/stop")
+@router.post("/clipboard/stop", summary="停止剪贴板监控", description="停止剪贴板监控")
 async def stop_clipboard_watcher():
     """停止剪贴板监控"""
     ok = clipboard_watcher.stop()
     return {"ok": True, "data": {"stopped": ok, "status": clipboard_watcher.get_status()}, "error": None}
 
 
-@router.get("/clipboard/history")
+@router.get("/clipboard/history", summary="剪贴板历史", description="获取剪贴板历史记录,支持按 content_type 过滤")
 async def get_clipboard_history(
     limit: int = Query(100, ge=1, le=1000, description="最多返回条数"),
     content_type: str | None = Query(None, description="按 text/image 过滤"),
@@ -110,7 +110,7 @@ async def get_clipboard_history(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.delete("/clipboard/history")
+@router.delete("/clipboard/history", summary="清空剪贴板历史", description="清空所有剪贴板历史记录")
 async def clear_clipboard_history():
     """清空剪贴板历史"""
     count = clipboard_watcher.clear_history()
@@ -120,7 +120,7 @@ async def clear_clipboard_history():
 # ===== 文件监控 =====
 
 
-@router.get("/file-watcher/status")
+@router.get("/file-watcher/status", summary="文件监控状态", description="获取文件监控的运行状态和库可用性")
 async def get_file_watcher_status():
     """获取文件监控状态"""
     data = file_watcher.get_status()
@@ -152,14 +152,14 @@ async def start_file_watcher(req: FileWatcherConfig):
     return {"ok": True, "data": file_watcher.get_status(), "error": None}
 
 
-@router.post("/file-watcher/stop")
+@router.post("/file-watcher/stop", summary="停止文件监控", description="停止文件监控")
 async def stop_file_watcher():
     """停止文件监控"""
     ok = file_watcher.stop()
     return {"ok": True, "data": {"stopped": ok, "status": file_watcher.get_status()}, "error": None}
 
 
-@router.get("/file-watcher/events")
+@router.get("/file-watcher/events", summary="文件事件列表", description="获取文件事件列表,支持按路径和事件类型过滤")
 async def get_file_watcher_events(
     limit: int = Query(100, ge=1, le=1000, description="最多返回条数"),
     path: str | None = Query(None, description="按路径前缀过滤"),
@@ -175,14 +175,14 @@ async def get_file_watcher_events(
 # ===== 系统托盘 =====
 
 
-@router.get("/tray/status")
+@router.get("/tray/status", summary="托盘状态", description="获取系统托盘的运行状态和库可用性")
 async def get_tray_status():
     """获取托盘状态"""
     data = tray_service.get_status()
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/tray/start")
+@router.post("/tray/start", summary="启动托盘", description="启动系统托盘(请求体: TrayConfig)")
 async def start_tray(req: TrayConfig):
     """启动托盘(请求体: TrayConfig)"""
     if not tray_service.get_status().get("tray_available"):
@@ -207,14 +207,14 @@ async def start_tray(req: TrayConfig):
     return {"ok": True, "data": tray_service.get_status(), "error": None}
 
 
-@router.post("/tray/stop")
+@router.post("/tray/stop", summary="停止托盘", description="停止系统托盘")
 async def stop_tray():
     """停止托盘"""
     ok = tray_service.stop_tray()
     return {"ok": True, "data": {"stopped": ok, "status": tray_service.get_status()}, "error": None}
 
 
-@router.post("/tray/shortcuts")
+@router.post("/tray/shortcuts", summary="设置快捷键", description="设置全局快捷键(请求体: ShortcutConfig,enabled=False 时仅停止)")
 async def set_shortcuts(req: ShortcutConfig):
     """设置快捷键(请求体: ShortcutConfig)
 
@@ -250,7 +250,7 @@ async def set_shortcuts(req: ShortcutConfig):
 # ===== 屏幕感知 =====
 
 
-@router.get("/screen/status")
+@router.get("/screen/status", summary="屏幕感知状态", description="获取屏幕感知服务的运行状态和库可用性")
 async def get_screen_status():
     """获取屏幕感知状态"""
     data = screen_service.get_status()
@@ -279,7 +279,7 @@ async def capture_screen(req: ScreenCaptureRequest):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.post("/screen/start")
+@router.post("/screen/start", summary="启动定时截图", description="启动定时截图(请求体: ScreenCaptureConfig)")
 async def start_screen_capture(req: ScreenCaptureConfig):
     """启动定时截图(请求体: ScreenCaptureConfig)"""
     if not screen_service.get_status().get("library_available"):
@@ -304,14 +304,14 @@ async def start_screen_capture(req: ScreenCaptureConfig):
     return {"ok": True, "data": screen_service.get_status(), "error": None}
 
 
-@router.post("/screen/stop")
+@router.post("/screen/stop", summary="停止定时截图", description="停止定时截图任务")
 async def stop_screen_capture():
     """停止定时截图"""
     ok = screen_service.stop_capture()
     return {"ok": True, "data": {"stopped": ok, "status": screen_service.get_status()}, "error": None}
 
 
-@router.get("/screen/screenshots")
+@router.get("/screen/screenshots", summary="截图历史", description="获取截图历史记录")
 async def get_screenshots(
     limit: int = Query(10, ge=1, le=100, description="最多返回条数"),
 ):
@@ -320,7 +320,7 @@ async def get_screenshots(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/screen/ocr-results")
+@router.get("/screen/ocr-results", summary="OCR 结果", description="获取 OCR 识别结果历史")
 async def get_ocr_results(
     limit: int = Query(10, ge=1, le=100, description="最多返回条数"),
 ):

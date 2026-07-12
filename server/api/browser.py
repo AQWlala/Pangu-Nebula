@@ -21,7 +21,7 @@ async def get_browser_status():
     return result
 
 
-@router.get("/page-info")
+@router.get("/page-info", summary="获取页面信息", description="获取当前页面的标题、URL 等信息")
 async def get_page_info():
     """获取当前页面信息(静态路由在前)"""
     result = await browser_service.get_page_info()
@@ -30,7 +30,7 @@ async def get_page_info():
     return result
 
 
-@router.get("/tabs")
+@router.get("/tabs", summary="列出标签页", description="列出浏览器中所有打开的标签页")
 async def list_tabs():
     """列出所有标签页(静态路由在前)"""
     result = await browser_service.list_tabs()
@@ -52,7 +52,7 @@ async def start_session(req: BrowserSessionRequest):
     return result
 
 
-@router.delete("/session")
+@router.delete("/session", summary="关闭浏览器会话", description="关闭当前浏览器会话并释放资源")
 async def close_session():
     """关闭浏览器会话"""
     closed = await browser_service.close_session()

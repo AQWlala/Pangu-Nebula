@@ -73,13 +73,13 @@ async def connect_server(req: McpConnectRequest):
 # ===== 静态路径: 本机工具管理 =====
 
 
-@router.get("/tools")
+@router.get("/tools", summary="列出本机 MCP 工具", description="列出本机 MCP 服务端注册的所有工具")
 async def list_tools():
     """列出本机 MCP 服务端注册的工具"""
     return {"ok": True, "data": mcp_server.list_tools(), "error": None}
 
 
-@router.post("/tools")
+@router.post("/tools", summary="注册 MCP 工具", description="注册新工具到本机 MCP 服务端 (handler_code 暂不执行,使用占位 handler)")
 async def register_tool(req: McpRegisterToolRequest):
     """注册新工具(handler_code 暂不执行,使用占位 handler)"""
     try:
@@ -101,7 +101,7 @@ async def register_tool(req: McpRegisterToolRequest):
 # ===== 静态路径: JSON-RPC 入口 =====
 
 
-@router.post("/rpc")
+@router.post("/rpc", summary="MCP JSON-RPC 入口", description="JSON-RPC 入口,调用 mcp_server.handle_request 处理原始请求")
 async def rpc_endpoint(body: dict):
     """JSON-RPC 入口,调用 mcp_server.handle_request 处理原始请求"""
     try:
@@ -114,7 +114,7 @@ async def rpc_endpoint(body: dict):
 # ===== 动态路径: 服务器操作(静态路径在前) =====
 
 
-@router.delete("/servers/{name}")
+@router.delete("/servers/{name}", summary="断开 MCP 服务器", description="断开 MCP 服务器连接,终止子进程")
 async def disconnect_server(name: str):
     """断开 MCP 服务器,终止子进程"""
     try:
@@ -126,7 +126,7 @@ async def disconnect_server(name: str):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.get("/servers/{name}")
+@router.get("/servers/{name}", summary="获取 MCP 服务器信息", description="获取指定 MCP 服务器的连接信息和状态")
 async def get_server(name: str):
     """获取服务器信息"""
     try:
@@ -136,7 +136,7 @@ async def get_server(name: str):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.get("/servers/{name}/tools")
+@router.get("/servers/{name}/tools", summary="列出服务器工具", description="列出指定 MCP 服务器注册的所有工具 (tools/list)")
 async def list_server_tools(name: str):
     """列出指定服务器的工具(tools/list)"""
     try:
@@ -148,7 +148,7 @@ async def list_server_tools(name: str):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.post("/servers/{name}/call")
+@router.post("/servers/{name}/call", summary="调用服务器工具", description="调用指定 MCP 服务器的工具 (tools/call)")
 async def call_server_tool(name: str, req: McpCallToolRequest):
     """调用指定服务器的工具(tools/call)"""
     try:
@@ -163,7 +163,7 @@ async def call_server_tool(name: str, req: McpCallToolRequest):
 # ===== 动态路径: 工具操作 =====
 
 
-@router.delete("/tools/{tool_name}")
+@router.delete("/tools/{tool_name}", summary="注销 MCP 工具", description="从本机 MCP 服务端注销指定工具")
 async def unregister_tool(tool_name: str):
     """注销工具"""
     try:

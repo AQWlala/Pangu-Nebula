@@ -41,7 +41,7 @@ def create_window(port, server_shutdown_func):
     """
     import webview  # 延迟导入: pywebview 是可选依赖,仅桌面模式需要
 
-    url = f"http://localhost:{port}"
+    url = f"http://127.0.0.1:{port}"
     webview.create_window(
         title="Pangu Nebula",
         url=url,

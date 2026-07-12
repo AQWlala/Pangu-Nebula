@@ -1,3 +1,4 @@
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
@@ -6,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 import uvicorn
 from dotenv import load_dotenv
 
-from .config import load_settings
+from .config import load_settings, APP_DIR
 from .db.engine import init_db
 from .api.chat import router as chat_router
 from .api.persona import router as persona_router
@@ -54,7 +55,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_dist = Path("frontend/dist")
+# 前端静态资源目录:打包后在 _MEIPASS/frontend/dist,开发时在项目根/frontend/dist
+if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    _dist = Path(sys._MEIPASS) / "frontend" / "dist"
+else:
+    _dist = APP_DIR / "frontend" / "dist"
 if _dist.exists():
     app.mount("/static", StaticFiles(directory=str(_dist)), name="static")
 

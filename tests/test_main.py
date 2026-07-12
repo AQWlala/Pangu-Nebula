@@ -18,5 +18,6 @@ def test_cors_headers(test_client: TestClient):
 
 def test_settings_defaults():
     assert settings.server_port == 7860
-    assert settings.db_path == "data/nebula.db"
+    # db_path 现在是绝对路径(打包后兼容: 详见 server/config.py 的 _get_app_dir)
+    assert settings.db_path.endswith("nebula.db")
     assert settings.debug is True

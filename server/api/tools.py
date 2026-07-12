@@ -13,12 +13,12 @@ class ToolExecuteRequest(BaseModel):
     parameters: dict = {}
 
 
-@router.get("")
+@router.get("", summary="列出工具", description="列出所有已注册的内置工具")
 async def get_tools():
     return {"ok": True, "data": list_tools(), "error": None}
 
 
-@router.post("/{name}/execute")
+@router.post("/{name}/execute", summary="执行工具", description="按名称执行指定工具,传入参数字典")
 async def execute_tool(name: str, body: ToolExecuteRequest):
     try:
         get_tool(name)

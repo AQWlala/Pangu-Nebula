@@ -25,7 +25,7 @@ class URLSnapshotRequest(BaseModel):
     url: str
 
 
-@router.get("")
+@router.get("", summary="Wiki 审核 模块信息", description="返回知识库安全写回审核模块的信息和端点列表")
 async def module_info():
     return {
         "ok": True,
@@ -43,7 +43,7 @@ async def module_info():
     }
 
 
-@router.post("")
+@router.post("", summary="提交审核", description="将 Wiki 写回内容提交审核,包含 proposed_content 与 current_content")
 async def submit_for_review(
     req: WikiReviewSubmit, session: AsyncSession = Depends(get_session)
 ):
@@ -58,7 +58,7 @@ async def submit_for_review(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/list")
+@router.get("/list", summary="列出待审核项", description="按 scope 过滤并列出待审核条目")
 async def list_pending(
     scope: str | None = Query(None),
     session: AsyncSession = Depends(get_session),
@@ -67,7 +67,7 @@ async def list_pending(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/snapshot")
+@router.post("/snapshot", summary="快照 URL", description="抓取指定 URL 的内容快照,用于审核比对")
 async def snapshot_url(
     req: URLSnapshotRequest, session: AsyncSession = Depends(get_session)
 ):
@@ -75,7 +75,7 @@ async def snapshot_url(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/{item_id}")
+@router.get("/{item_id}", summary="获取审核条目", description="根据 ID 获取单个审核条目详情")
 async def get_review_item(
     item_id: int, session: AsyncSession = Depends(get_session)
 ):
@@ -88,7 +88,7 @@ async def get_review_item(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/{item_id}/diff")
+@router.get("/{item_id}/diff", summary="获取差异", description="返回审核条目的内容差异(新增/删除/修改)")
 async def get_diff(item_id: int, session: AsyncSession = Depends(get_session)):
     data = await _service.get_diff(session, item_id)
     if data is None:
@@ -99,7 +99,7 @@ async def get_diff(item_id: int, session: AsyncSession = Depends(get_session)):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/{item_id}/merge")
+@router.post("/{item_id}/merge", summary="合并审核条目", description="将审核条目的内容合并到 Wiki,可附审核备注")
 async def merge_item(
     item_id: int,
     req: WikiReviewAction,
@@ -114,7 +114,7 @@ async def merge_item(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/{item_id}/discard")
+@router.post("/{item_id}/discard", summary="丢弃审核条目", description="丢弃审核条目的内容,可附审核备注")
 async def discard_item(
     item_id: int,
     req: WikiReviewAction,

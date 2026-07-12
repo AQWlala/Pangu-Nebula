@@ -44,7 +44,7 @@ class VisionRequest(BaseModel):
 # ===== 端点 =====
 
 
-@router.get("")
+@router.get("", summary="多模态能力信息", description="获取多模态能力信息(TTS、ASR、Vision、Video、Screen)")
 async def get_multimodal():
     """获取多模态能力信息"""
     capabilities = {
@@ -89,7 +89,7 @@ def _strip_data_uri(data: str) -> str:
     return data
 
 
-@router.post("/tts")
+@router.post("/tts", summary="语音合成", description="将文本合成为语音,返回 base64 编码的 MP3 音频")
 async def synthesize_speech(body: TTSRequest):
     """语音合成端点 - 调用 tts_service.synthesize"""
     try:
@@ -111,7 +111,7 @@ async def synthesize_speech(body: TTSRequest):
     }
 
 
-@router.post("/asr")
+@router.post("/asr", summary="语音识别", description="将 base64 编码的音频转写为文字,支持 zh/en/auto 语言")
 async def transcribe_audio(body: ASRRequest):
     """语音识别端点 - 调用 asr_service.transcribe"""
     try:
@@ -134,7 +134,7 @@ async def transcribe_audio(body: ASRRequest):
     return {"ok": True, "data": {"text": text, "language": body.language}, "error": None}
 
 
-@router.post("/vision")
+@router.post("/vision", summary="图片识别", description="识别 base64 编码的图片内容,可附自定义 prompt")
 async def describe_image(body: VisionRequest):
     """图片识别端点 - 调用 vision_service.describe_image"""
     try:
@@ -159,7 +159,7 @@ async def describe_image(body: VisionRequest):
     return {"ok": True, "data": {"description": description}, "error": None}
 
 
-@router.post("/video")
+@router.post("/video", summary="视频分析(实验性)", description="视频分析端点 - 实验性服务,暂不可用(返回 501)")
 async def analyze_video():
     """视频分析端点 - 实验性服务，暂不可用"""
     raise HTTPException(
@@ -168,7 +168,7 @@ async def analyze_video():
     )
 
 
-@router.post("/screen")
+@router.post("/screen", summary="屏幕感知(实验性)", description="屏幕感知端点 - 实验性服务,暂不可用(返回 501)")
 async def capture_screen():
     """屏幕感知端点 - 实验性服务，暂不可用"""
     raise HTTPException(

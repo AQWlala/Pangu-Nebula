@@ -20,7 +20,7 @@ class ConfirmSoulRequest(BaseModel):
     log_id: int
 
 
-@router.post("/trigger")
+@router.post("/trigger", summary="触发进化管道", description="触发进化管道(extract/compile/reflect/soul 阶段),返回日志")
 async def trigger_evolution(req: EvolutionTriggerRequest):
     """触发进化管道"""
     try:
@@ -34,7 +34,7 @@ async def trigger_evolution(req: EvolutionTriggerRequest):
     return {"ok": True, "data": {"logs": logs}, "error": None}
 
 
-@router.get("/logs")
+@router.get("/logs", summary="查询进化日志", description="查询进化日志,可按 Persona 和阶段(extract/compile/reflect/soul)过滤")
 async def list_logs(
     persona_id: int | None = Query(None, description="按 Persona 过滤"),
     phase: str | None = Query(None, description="按阶段过滤(extract/compile/reflect/soul)"),
@@ -61,7 +61,7 @@ async def get_log(log_id: int):
     return {"ok": True, "data": log, "error": None}
 
 
-@router.post("/confirm-soul")
+@router.post("/confirm-soul", summary="确认 SOUL.md", description="确认 SOUL.md 更新:将 soul 阶段生成的新 SOUL.md 写入 Persona.system_prompt")
 async def confirm_soul(req: ConfirmSoulRequest):
     """确认 SOUL.md 更新:将 soul 阶段生成的新 SOUL.md 写入 Persona.system_prompt"""
     async with async_session() as session:
@@ -78,7 +78,7 @@ async def confirm_soul(req: ConfirmSoulRequest):
     return {"ok": True, "data": persona, "error": None}
 
 
-@router.get("")
+@router.get("", summary="进化引擎信息", description="获取进化引擎状态信息,返回各阶段(extract/compile/reflect/soul)说明")
 async def get_evolution_info():
     """获取进化引擎状态信息(返回各阶段说明)"""
     return {

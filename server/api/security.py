@@ -110,7 +110,7 @@ router = APIRouter(prefix="/security", tags=["security"])
 # ===== 安全模块信息 =====
 
 
-@router.get("")
+@router.get("", summary="安全模块信息", description="获取安全模块信息,包括 ACL、注入防护、SSRF、密钥管理、国密、DLP 等功能状态")
 async def get_security_info():
     """获取安全模块信息"""
     return {
@@ -138,7 +138,7 @@ async def get_security_info():
 # ===== ACL 权限检查(静态路由,必须在 /acl/rules/{rule_id} 之前) =====
 
 
-@router.post("/acl/check")
+@router.post("/acl/check", summary="ACL 权限检查", description="检查指定 Persona 对资源的操作权限")
 async def check_acl_permission(req: AclCheckRequest):
     """权限检查"""
     async with async_session() as session:
@@ -154,7 +154,7 @@ async def check_acl_permission(req: AclCheckRequest):
 # ===== ACL 规则管理 =====
 
 
-@router.get("/acl/rules")
+@router.get("/acl/rules", summary="列出 ACL 规则", description="列出 ACL 规则,可按 Persona 过滤")
 async def list_acl_rules(
     persona_id: int | None = Query(None, description="按 Persona 过滤"),
 ):
@@ -164,7 +164,7 @@ async def list_acl_rules(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/acl/rules")
+@router.post("/acl/rules", summary="创建 ACL 规则", description="创建新的 ACL 规则,指定 Persona、资源、动作和效果(allow/deny)")
 async def create_acl_rule(req: AclRuleCreate):
     """创建 ACL 规则"""
     async with async_session() as session:
@@ -224,7 +224,7 @@ async def delete_acl_rule(rule_id: int):
 # ===== 注入防护 =====
 
 
-@router.post("/injection/check")
+@router.post("/injection/check", summary="注入检查", description="检查文本是否包含 Prompt 注入、代码注入、URL 注入等攻击")
 async def check_injection(req: InjectionCheckRequest):
     """注入检查"""
     data = injection_guard.check(req.text, context=req.context)
@@ -244,7 +244,7 @@ async def clean_injection(req: InjectionCleanRequest):
 # ===== SSRF 防护 =====
 
 
-@router.post("/ssrf/check")
+@router.post("/ssrf/check", summary="SSRF 检查", description="检查 URL 是否存在 SSRF 风险(内网 IP、敏感协议等)")
 async def check_ssrf(req: SsrfCheckRequest):
     """SSRF 检查"""
     data = ssrf_guard.check(req.url, allow_internal=req.allow_internal)

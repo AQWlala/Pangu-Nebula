@@ -32,7 +32,7 @@ router = APIRouter(prefix="/sync", tags=["sync-device"])
 # ===== 配对端点(静态路径) =====
 
 
-@router.post("/pairing/initiate")
+@router.post("/pairing/initiate", summary="发起设备配对", description="发起设备配对(生成密钥对 + 配对码 + QR 载荷)")
 async def initiate_pairing(req: PairingInitiateRequest):
     """发起设备配对(生成密钥对 + 配对码 + QR 载荷)"""
     try:
@@ -44,7 +44,7 @@ async def initiate_pairing(req: PairingInitiateRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/pairing/confirm")
+@router.post("/pairing/confirm", summary="确认设备配对", description="确认设备配对(验证配对码 + 计算共享密钥)")
 async def confirm_pairing(req: PairingConfirmRequest):
     """确认设备配对(验证配对码 + 计算共享密钥)"""
     try:
@@ -75,7 +75,7 @@ async def get_pairing_status(pairing_code: str):
 # ===== 设备端点(静态路径在前) =====
 
 
-@router.get("/devices")
+@router.get("/devices", summary="列出已配对设备", description="列出所有已配对设备")
 async def list_devices():
     """列出所有已配对设备"""
     data = await pairing_service.list_devices()

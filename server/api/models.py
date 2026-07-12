@@ -1,24 +1,24 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PersonaCreate(BaseModel):
-    name: str
-    system_prompt: str = ""
-    temperature: float = 0.7
-    max_tokens: int = 4096
-    model_provider: str = "openai"
-    model_name: str = "gpt-4o"
-    avatar: str = ""
+    name: str = Field(..., description="Persona 名称")
+    system_prompt: str = Field("", description="系统提示词,定义 Persona 的角色和行为")
+    temperature: float = Field(0.7, description="采样温度,0~2 之间,越高越随机")
+    max_tokens: int = Field(4096, description="单次回复最大 token 数")
+    model_provider: str = Field("openai", description="LLM Provider 名称")
+    model_name: str = Field("gpt-4o", description="模型名称")
+    avatar: str = Field("", description="头像 URL 或 base64")
 
 
 class PersonaUpdate(BaseModel):
-    name: str | None = None
-    system_prompt: str | None = None
-    temperature: float | None = None
-    max_tokens: int | None = None
-    model_provider: str | None = None
-    model_name: str | None = None
-    avatar: str | None = None
+    name: str | None = Field(None, description="Persona 名称")
+    system_prompt: str | None = Field(None, description="系统提示词")
+    temperature: float | None = Field(None, description="采样温度")
+    max_tokens: int | None = Field(None, description="最大 token 数")
+    model_provider: str | None = Field(None, description="LLM Provider 名称")
+    model_name: str | None = Field(None, description="模型名称")
+    avatar: str | None = Field(None, description="头像")
 
 
 class PersonaActivate(BaseModel):
@@ -26,62 +26,62 @@ class PersonaActivate(BaseModel):
 
 
 class PersonaGenerateRequest(BaseModel):
-    description: str
-    model_provider: str = "openai"
-    model_name: str = "gpt-4o"
+    description: str = Field(..., description="自然语言描述,用于 AI 生成 Persona")
+    model_provider: str = Field("openai", description="LLM Provider 名称")
+    model_name: str = Field("gpt-4o", description="模型名称")
 
 
 class ConversationCreate(BaseModel):
-    persona_id: int | None = None
-    title: str | None = None
+    persona_id: int | None = Field(None, description="关联的 Persona ID,为空则使用默认")
+    title: str | None = Field(None, description="对话标题")
 
 
 class MessageSend(BaseModel):
-    content: str
+    content: str = Field(..., description="消息内容")
 
 
 class SwarmCreate(BaseModel):
-    persona_id: int
-    goal: str
-    title: str | None = None
+    persona_id: int = Field(..., description="关联的 Persona ID")
+    goal: str = Field(..., description="蜂群任务目标")
+    title: str | None = Field(None, description="蜂群任务标题")
 
 
 class SwarmUpdate(BaseModel):
-    title: str | None = None
-    goal: str | None = None
-    status: str | None = None
+    title: str | None = Field(None, description="蜂群任务标题")
+    goal: str | None = Field(None, description="蜂群任务目标")
+    status: str | None = Field(None, description="状态: pending/running/completed/cancelled")
 
 
 class MemoryCreate(BaseModel):
-    persona_id: int | None = None
-    layer: str
-    title: str
-    html_content: str
-    importance: float = 0.5
-    tags: list[str] = []
+    persona_id: int | None = Field(None, description="关联的 Persona ID")
+    layer: str = Field(..., description="记忆层级: L1/L2/L3/L4/L5")
+    title: str = Field(..., description="记忆标题")
+    html_content: str = Field(..., description="记忆内容(HTML 格式)")
+    importance: float = Field(0.5, description="重要性,0~1 之间")
+    tags: list[str] = Field([], description="标签列表")
 
 
 class MemoryUpdate(BaseModel):
-    layer: str | None = None
-    title: str | None = None
-    html_content: str | None = None
-    importance: float | None = None
-    tags: list[str] | None = None
+    layer: str | None = Field(None, description="记忆层级")
+    title: str | None = Field(None, description="记忆标题")
+    html_content: str | None = Field(None, description="记忆内容(HTML)")
+    importance: float | None = Field(None, description="重要性,0~1")
+    tags: list[str] | None = Field(None, description="标签列表")
 
 
 class MemorySearchQuery(BaseModel):
-    query: str
-    persona_id: int | None = None
-    layer: str | None = None
-    limit: int = 10
+    query: str = Field(..., description="搜索关键词")
+    persona_id: int | None = Field(None, description="按 Persona 过滤")
+    layer: str | None = Field(None, description="按层级过滤")
+    limit: int = Field(10, description="返回条数上限")
 
 
 class SandboxExecuteRequest(BaseModel):
-    code: str
-    input_data: dict = {}
-    input_schema: dict | None = None
-    output_schema: dict | None = None
-    timeout: int = 60
+    code: str = Field(..., description="要执行的 Python 代码")
+    input_data: dict = Field({}, description="输入数据")
+    input_schema: dict | None = Field(None, description="输入 schema 校验")
+    output_schema: dict | None = Field(None, description="输出 schema 校验")
+    timeout: int = Field(60, description="超时时间(秒)")
 
 
 class DistillCheckRequest(BaseModel):
@@ -120,22 +120,22 @@ class SkillImportMarkdownRequest(BaseModel):
 
 
 class SkillCreate(BaseModel):
-    name: str
-    description: str = ""
-    category: str = "general"
-    prompt_template: str
-    tags: list[str] = []
+    name: str = Field(..., description="技能名称(唯一标识)")
+    description: str = Field("", description="技能描述")
+    category: str = Field("general", description="技能分类")
+    prompt_template: str = Field(..., description="提示词模板,支持 {{variable}} 变量")
+    tags: list[str] = Field([], description="标签列表")
 
 
 class SkillUpdate(BaseModel):
-    description: str | None = None
-    category: str | None = None
-    prompt_template: str | None = None
-    tags: list[str] | None = None
+    description: str | None = Field(None, description="技能描述")
+    category: str | None = Field(None, description="技能分类")
+    prompt_template: str | None = Field(None, description="提示词模板")
+    tags: list[str] | None = Field(None, description="标签列表")
 
 
 class SkillExecuteRequest(BaseModel):
-    variables: dict[str, str] = {}
+    variables: dict[str, str] = Field({}, description="模板变量键值对")
 
 
 # ===== Phase 6A: Wiki 编译引擎 =====

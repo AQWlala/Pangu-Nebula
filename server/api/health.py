@@ -25,7 +25,7 @@ from .models_scheduler import MonitorStartRequest
 router = APIRouter(prefix="/health-check", tags=["health-check"])
 
 
-@router.get("")
+@router.get("", summary="健康检查模块信息", description="获取 Provider 健康检查 + 降级 + 监控模块信息和端点列表")
 async def get_health_check():
     """模块信息"""
     return {
@@ -48,7 +48,7 @@ async def get_health_check():
     }
 
 
-@router.get("/providers")
+@router.get("/providers", summary="列出 Provider 状态", description="列出所有 Provider 的健康状态")
 async def list_providers_status():
     """列出所有 Provider 健康状态"""
     try:
@@ -84,7 +84,7 @@ async def get_provider_status(name: str):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/check-all")
+@router.post("/check-all", summary="检查所有 Provider", description="手动触发检查所有 Provider 的健康状态")
 async def check_all_providers():
     """手动检查所有 Provider"""
     try:

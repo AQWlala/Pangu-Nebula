@@ -1,4 +1,12 @@
 from .base import BaseProvider, Message, ProviderCapability
+from .protocols import (
+    AnthropicProtocol,
+    CustomProtocol,
+    GeminiProtocol,
+    OpenAIProtocol,
+    ProtocolBase,
+    StreamChunk,
+)
 from .registry import (
     get_provider,
     get_provider_info,
@@ -19,6 +27,12 @@ __all__ = [
     "BaseProvider",
     "Message",
     "ProviderCapability",
+    "ProtocolBase",
+    "StreamChunk",
+    "OpenAIProtocol",
+    "AnthropicProtocol",
+    "GeminiProtocol",
+    "CustomProtocol",
     "register_provider",
     "get_provider",
     "get_provider_info",

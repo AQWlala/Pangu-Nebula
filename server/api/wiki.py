@@ -15,7 +15,7 @@ class WikiSearchRequest(BaseModel):
     limit: int = 10
 
 
-@router.get("")
+@router.get("", summary="列出 Wiki", description="列出 Wiki 页面 (支持 persona_id/tag/status 过滤 + 分页)")
 async def list_wikis(
     persona_id: int | None = None,
     tag: str | None = None,
@@ -34,7 +34,7 @@ async def list_wikis(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("")
+@router.post("", summary="创建 Wiki", description="手动创建 Wiki 页面")
 async def create_wiki(req: WikiCreate):
     """手动创建 Wiki 页面"""
     data = await wiki_service.create_wiki(
@@ -48,7 +48,7 @@ async def create_wiki(req: WikiCreate):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/compile")
+@router.post("/compile", summary="编译 Wiki", description="从对话编译 Wiki 笔记 (必须在 /{wiki_id} 之前注册)")
 async def compile_wiki(req: WikiCompileRequest):
     """从对话编译 Wiki 笔记 (必须在 /{wiki_id} 之前注册)"""
     result = await wiki_service.compile_from_conversation(
@@ -62,7 +62,7 @@ async def compile_wiki(req: WikiCompileRequest):
     return result
 
 
-@router.post("/search")
+@router.post("/search", summary="搜索 Wiki", description="搜索 Wiki 页面 (必须在 /{wiki_id} 之前注册)")
 async def search_wikis(req: WikiSearchRequest):
     """搜索 Wiki 页面 (必须在 /{wiki_id} 之前注册)"""
     data = await wiki_service.search_wikis(
@@ -73,7 +73,7 @@ async def search_wikis(req: WikiSearchRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/{wiki_id}")
+@router.get("/{wiki_id}", summary="获取 Wiki", description="获取单个 Wiki 页面")
 async def get_wiki(wiki_id: int):
     """获取单个 Wiki 页面"""
     data = await wiki_service.get_wiki(wiki_id)
@@ -84,7 +84,7 @@ async def get_wiki(wiki_id: int):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.put("/{wiki_id}")
+@router.put("/{wiki_id}", summary="更新 Wiki", description="更新 Wiki 页面")
 async def update_wiki(wiki_id: int, req: WikiUpdate):
     """更新 Wiki 页面"""
     data = await wiki_service.update_wiki(wiki_id, **req.model_dump(exclude_unset=True))
@@ -95,7 +95,7 @@ async def update_wiki(wiki_id: int, req: WikiUpdate):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.delete("/{wiki_id}")
+@router.delete("/{wiki_id}", summary="删除 Wiki", description="删除 Wiki 页面")
 async def delete_wiki(wiki_id: int):
     """删除 Wiki 页面"""
     deleted = await wiki_service.delete_wiki(wiki_id)

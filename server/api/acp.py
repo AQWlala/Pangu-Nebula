@@ -68,7 +68,7 @@ class ACPCallSkillRequest(BaseModel):
 # ===== 模块信息 =====
 
 
-@router.get("")
+@router.get("", summary="ACP 模块信息", description="获取 Agent Communication Protocol 模块信息,包括支持的 Agent 类型和可用能力")
 async def get_acp_module():
     """获取 ACP 模块信息"""
     return {
@@ -99,7 +99,7 @@ async def get_acp_module():
 # ===== Agent CRUD =====
 
 
-@router.post("/agents")
+@router.post("/agents", summary="注册 Agent", description="注册外部 Agent (Claude Code/Codex/Gemini CLI 等),支持指定类型、端点、能力和认证令牌")
 async def register_agent(req: AgentRegisterRequest):
     """注册外部 Agent"""
     data = await _service.register_agent(
@@ -112,14 +112,14 @@ async def register_agent(req: AgentRegisterRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/agents")
+@router.get("/agents", summary="列出 Agent", description="列出已注册的外部 Agent,可选仅返回启用的 Agent")
 async def list_agents(enabled_only: bool = Query(True)):
     """列出已注册的外部 Agent"""
     data = await _service.list_agents(enabled_only=enabled_only)
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/agents/{agent_id}")
+@router.get("/agents/{agent_id}", summary="获取 Agent", description="获取单个外部 Agent 的详细信息")
 async def get_agent(agent_id: int):
     """获取单个 Agent"""
     data = await _service.get_agent(agent_id)
@@ -131,7 +131,7 @@ async def get_agent(agent_id: int):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/agents/{agent_id}/enable")
+@router.post("/agents/{agent_id}/enable", summary="启用 Agent", description="启用指定的外部 Agent")
 async def enable_agent(agent_id: int):
     """启用 Agent"""
     result = await _service.enable_agent(agent_id)
@@ -143,7 +143,7 @@ async def enable_agent(agent_id: int):
     return {"ok": True, "data": result["agent"], "error": None}
 
 
-@router.post("/agents/{agent_id}/disable")
+@router.post("/agents/{agent_id}/disable", summary="禁用 Agent", description="禁用指定的外部 Agent")
 async def disable_agent(agent_id: int):
     """禁用 Agent"""
     result = await _service.disable_agent(agent_id)
@@ -155,7 +155,7 @@ async def disable_agent(agent_id: int):
     return {"ok": True, "data": result["agent"], "error": None}
 
 
-@router.delete("/agents/{agent_id}")
+@router.delete("/agents/{agent_id}", summary="删除 Agent", description="删除指定的外部 Agent")
 async def delete_agent(agent_id: int):
     """删除 Agent"""
     result = await _service.delete_agent(agent_id)
@@ -170,7 +170,7 @@ async def delete_agent(agent_id: int):
 # ===== ACP 调用 =====
 
 
-@router.post("/call/memory")
+@router.post("/call/memory", summary="调用记忆系统", description="外部 Agent 调用 Pangu Nebula 记忆系统,支持 read/write/search 操作")
 async def call_memory(req: ACPCallMemoryRequest):
     """调用记忆系统
 
@@ -186,7 +186,7 @@ async def call_memory(req: ACPCallMemoryRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/call/swarm")
+@router.post("/call/swarm", summary="调用蜂群", description="外部 Agent 调用蜂群能力,发起一个蜂群任务")
 async def call_swarm(req: ACPCallSwarmRequest):
     """调用蜂群 - 发起蜂群任务
 
@@ -202,7 +202,7 @@ async def call_swarm(req: ACPCallSwarmRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/call/skill")
+@router.post("/call/skill", summary="调用技能", description="外部 Agent 调用 Pangu Nebula 技能系统,按名称执行技能")
 async def call_skill(req: ACPCallSkillRequest):
     """调用技能系统
 
@@ -221,7 +221,7 @@ async def call_skill(req: ACPCallSkillRequest):
 # ===== 调用日志 =====
 
 
-@router.get("/logs")
+@router.get("/logs", summary="获取调用日志", description="获取 ACP 调用日志,可按 agent_id 过滤并限制返回条数")
 async def get_call_logs(
     agent_id: int | None = Query(None),
     limit: int = Query(100, ge=1, le=1000),

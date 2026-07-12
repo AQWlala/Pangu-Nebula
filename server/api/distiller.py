@@ -32,7 +32,7 @@ def _record_to_dict(r: TaskRecordORM) -> dict:
     }
 
 
-@router.post("/check")
+@router.post("/check", summary="检查并触发蒸馏", description="检查并触发蒸馏:连续3次同类任务成功/失败时触发")
 async def check_distill(req: DistillCheckRequest):
     """检查并触发蒸馏:连续3次同类任务成功/失败时触发"""
     try:
@@ -64,7 +64,7 @@ async def check_distill(req: DistillCheckRequest):
     }
 
 
-@router.post("/confirm")
+@router.post("/confirm", summary="确认蒸馏结果", description="人工确认蒸馏结果,将技能写入 data/skills/{skill_name}.md")
 async def confirm_distill(req: DistillConfirmRequest):
     """人工确认蒸馏结果,将技能写入 data/skills/{skill_name}.md"""
     try:
@@ -84,7 +84,7 @@ async def confirm_distill(req: DistillConfirmRequest):
     return {"ok": True, "data": write_result, "error": None}
 
 
-@router.get("/records")
+@router.get("/records", summary="列出任务记录", description="获取任务记录列表,支持按任务类型和 Persona 过滤并分页")
 async def list_records(
     task_type: str | None = Query(None, description="按任务类型过滤"),
     persona_id: int | None = Query(None, description="按 Persona 过滤"),

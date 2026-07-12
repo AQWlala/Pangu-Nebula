@@ -41,7 +41,7 @@ class DAGReject(BaseModel):
     reason: str
 
 
-@router.get("")
+@router.get("", summary="DAG 模块信息", description="返回 DAG 编排数据模型的模块信息和端点列表")
 async def module_info():
     return {
         "ok": True,
@@ -58,7 +58,7 @@ async def module_info():
     }
 
 
-@router.post("")
+@router.post("", summary="创建 DAG", description="创建一个新的 DAG 工作流,包含节点和边定义")
 async def create_dag(req: DAGCreate, session: AsyncSession = Depends(get_session)):
     data = await _service.create_dag(
         session,
@@ -69,13 +69,13 @@ async def create_dag(req: DAGCreate, session: AsyncSession = Depends(get_session
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/list")
+@router.get("/list", summary="列出 DAG", description="列出所有 DAG 工作流")
 async def list_dags(session: AsyncSession = Depends(get_session)):
     data = await _service.list_dags(session)
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/{dag_id}")
+@router.get("/{dag_id}", summary="获取 DAG", description="根据 ID 获取单个 DAG 工作流详情")
 async def get_dag(dag_id: str, session: AsyncSession = Depends(get_session)):
     data = await _service.get_dag(session, dag_id)
     if data is None:
@@ -86,7 +86,7 @@ async def get_dag(dag_id: str, session: AsyncSession = Depends(get_session)):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.put("/{dag_id}/node/{node_id}")
+@router.put("/{dag_id}/node/{node_id}", summary="更新节点状态", description="更新 DAG 中指定节点的状态和结果")
 async def update_node(
     dag_id: str,
     node_id: str,
@@ -104,7 +104,7 @@ async def update_node(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/{dag_id}/approve")
+@router.post("/{dag_id}/approve", summary="审批通过 DAG", description="审批通过指定的 DAG 工作流")
 async def approve_dag(dag_id: str, session: AsyncSession = Depends(get_session)):
     data = await _service.approve_dag(session, dag_id)
     if data is None:
@@ -115,7 +115,7 @@ async def approve_dag(dag_id: str, session: AsyncSession = Depends(get_session))
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/{dag_id}/reject")
+@router.post("/{dag_id}/reject", summary="驳回 DAG", description="驳回指定的 DAG 工作流,并提交驳回原因")
 async def reject_dag(
     dag_id: str, req: DAGReject, session: AsyncSession = Depends(get_session)
 ):

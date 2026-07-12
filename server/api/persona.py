@@ -8,13 +8,13 @@ from .models import PersonaCreate, PersonaGenerateRequest, PersonaUpdate
 router = APIRouter(prefix="/persona", tags=["persona"])
 
 
-@router.get("")
+@router.get("", summary="列出 Persona", description="列出所有 Persona 配置")
 async def list_personas(session: AsyncSession = Depends(get_session)):
     data = await persona_service.list_personas(session)
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/active")
+@router.get("/active", summary="获取当前激活的 Persona", description="获取当前会话激活的 Persona,未设置时返回 null")
 async def get_active_persona(session: AsyncSession = Depends(get_session)):
     persona_id = active_state.get_active_persona_id()
     if persona_id is None:
@@ -23,13 +23,13 @@ async def get_active_persona(session: AsyncSession = Depends(get_session)):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("")
+@router.post("", summary="创建 Persona", description="创建一个新的 Persona 配置,包括 system_prompt、模型参数等")
 async def create_persona(req: PersonaCreate, session: AsyncSession = Depends(get_session)):
     data = await persona_service.create_persona(session, req.model_dump())
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/generate")
+@router.post("/generate", summary="AI 生成 Persona", description="通过自然语言描述让 AI 自动生成 Persona 配置")
 async def generate_persona(req: PersonaGenerateRequest):
     try:
         data = await persona_service.generate_persona_with_ai(
@@ -44,7 +44,7 @@ async def generate_persona(req: PersonaGenerateRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/{persona_id}")
+@router.get("/{persona_id}", summary="获取 Persona", description="根据 ID 获取单个 Persona 配置")
 async def get_persona(persona_id: int, session: AsyncSession = Depends(get_session)):
     data = await persona_service.get_persona(session, persona_id)
     if data is None:
@@ -52,7 +52,7 @@ async def get_persona(persona_id: int, session: AsyncSession = Depends(get_sessi
     return {"ok": True, "data": data, "error": None}
 
 
-@router.put("/{persona_id}")
+@router.put("/{persona_id}", summary="更新 Persona", description="更新指定 Persona 的字段(部分更新)")
 async def update_persona(
     persona_id: int, req: PersonaUpdate, session: AsyncSession = Depends(get_session)
 ):
@@ -64,7 +64,7 @@ async def update_persona(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.delete("/{persona_id}")
+@router.delete("/{persona_id}", summary="删除 Persona", description="删除指定 Persona,若为当前激活则会清除激活状态")
 async def delete_persona(persona_id: int, session: AsyncSession = Depends(get_session)):
     deleted = await persona_service.delete_persona(session, persona_id)
     if not deleted:
@@ -74,7 +74,7 @@ async def delete_persona(persona_id: int, session: AsyncSession = Depends(get_se
     return {"ok": True, "data": {"id": persona_id, "deleted": True}, "error": None}
 
 
-@router.post("/{persona_id}/activate")
+@router.post("/{persona_id}/activate", summary="激活 Persona", description="将指定 Persona 设为当前会话激活的角色")
 async def activate_persona(persona_id: int, session: AsyncSession = Depends(get_session)):
     data = await persona_service.get_persona(session, persona_id)
     if data is None:

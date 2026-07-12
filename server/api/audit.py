@@ -23,7 +23,7 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 # ===== 审计日志端点 =====
 
 
-@router.get("/logs")
+@router.get("/logs", summary="查询审计日志", description="查询审计日志,支持按 Persona/动作/资源/时间范围过滤并分页")
 async def list_logs(
     persona_id: int | None = Query(None, description="按 Persona 过滤"),
     action: str | None = Query(None, description="按动作过滤(llm_call/tool_call/...)"),
@@ -48,7 +48,7 @@ async def list_logs(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/logs")
+@router.post("/logs", summary="记录审计日志", description="手动记录审计日志(供其他模块调用)")
 async def create_log(req: AuditLogCreate):
     """手动记录审计日志(供其他模块调用)"""
     async with async_session() as session:
@@ -94,7 +94,7 @@ async def delete_log(log_id: int):
     return {"ok": True, "data": {"id": log_id, "deleted": True}, "error": None}
 
 
-@router.get("/summary")
+@router.get("/summary", summary="审计摘要", description="获取审计摘要:总记录数/总token/总cost/总duration/按action分组")
 async def get_summary(
     persona_id: int | None = Query(None, description="按 Persona 过滤"),
     start_date: str | None = Query(None, description="起始日期(ISO 格式)"),
@@ -156,7 +156,7 @@ async def update_budget(
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/budget/check")
+@router.post("/budget/check", summary="检查预算", description="检查预算是否超限(token/时间/cost)")
 async def check_budget(req: BudgetCheckRequest):
     """检查预算是否超限"""
     async with async_session() as session:

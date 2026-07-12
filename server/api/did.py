@@ -22,7 +22,7 @@ router = APIRouter(prefix="/did", tags=["did"])
 # ===== 模块信息 =====
 
 
-@router.get("")
+@router.get("", summary="DID 模块信息", description="获取 DID 去中心化身份模块信息,包括方法和功能列表")
 async def get_did():
     """获取 DID 模块信息"""
     return {
@@ -50,7 +50,7 @@ async def get_did():
 # ===== DID 端点(静态路径在前) =====
 
 
-@router.post("/create")
+@router.post("/create", summary="创建 DID", description="创建 DID(Ed25519 密钥对 + did:key 方法)")
 async def create_did(req: DidCreateRequest):
     """创建 DID(Ed25519 + did:key)"""
     try:
@@ -64,7 +64,7 @@ async def create_did(req: DidCreateRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/sign")
+@router.post("/sign", summary="DID 签名", description="用 DID 的私钥对消息进行签名")
 async def sign_did(req: DidSignRequest):
     """用 DID 的私钥对消息签名"""
     try:
@@ -76,7 +76,7 @@ async def sign_did(req: DidSignRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/verify")
+@router.post("/verify", summary="验证 DID 签名", description="验证签名(无需 DB,直接从 did 解析公钥)")
 async def verify_did(req: DidVerifyRequest):
     """验证签名(无需 DB,直接从 did 解析公钥)"""
     try:

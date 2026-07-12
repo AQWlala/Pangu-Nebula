@@ -34,7 +34,7 @@ router = APIRouter(prefix="/oauth", tags=["oauth"])
 # ===== 模块信息 / 提供商 =====
 
 
-@router.get("")
+@router.get("", summary="OAuth 模块信息", description="获取 OAuth 模块信息 (支持的平台列表 + 配置状态)")
 async def get_oauth():
     """获取 OAuth 模块信息 (支持的平台列表 + 配置状态)"""
     providers = oauth_service.list_providers()
@@ -59,7 +59,7 @@ async def list_providers():
 # ===== OAuth 授权流程 =====
 
 
-@router.post("/authorize")
+@router.post("/authorize", summary="获取授权 URL", description="获取 OAuth 授权 URL (启动 PKCE 流程),前端跳转到该 URL 让用户授权")
 async def authorize(req: OAuthAuthorizeRequest):
     """获取 OAuth 授权 URL (启动 PKCE 流程)
 
@@ -78,7 +78,7 @@ async def authorize(req: OAuthAuthorizeRequest):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.post("/callback")
+@router.post("/callback", summary="OAuth 回调", description="OAuth 回调: 用授权码交换 Token,前端收到提供商重定向后提交 code 和 state")
 async def callback(req: OAuthCallbackRequest):
     """OAuth 回调: 用授权码交换 Token
 

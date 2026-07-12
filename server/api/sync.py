@@ -37,7 +37,7 @@ router = APIRouter(prefix="/sync", tags=["sync"])
 # ===== 模块信息 =====
 
 
-@router.get("")
+@router.get("", summary="同步模块信息", description="获取同步模块信息,包括 CRDT 和同步操作功能")
 async def get_sync():
     """获取同步模块信息"""
     return {
@@ -60,7 +60,7 @@ async def get_sync():
 # ===== CRDT 键列表(静态路径,在动态路径前) =====
 
 
-@router.get("/crdt/keys")
+@router.get("/crdt/keys", summary="列出 CRDT 键", description="列出所有 CRDT 键(去重,标注 op_type)")
 async def list_crdt_keys():
     """列出所有 CRDT 键(去重,标注 op_type)"""
     try:
@@ -75,7 +75,7 @@ async def list_crdt_keys():
 # ===== LWW Register =====
 
 
-@router.post("/crdt/lww")
+@router.post("/crdt/lww", summary="创建/更新 LWW", description="创建或更新 LWW Register (Last-Write-Wins)")
 async def create_lww(req: LWWCreateRequest):
     """创建/更新 LWW Register"""
     try:

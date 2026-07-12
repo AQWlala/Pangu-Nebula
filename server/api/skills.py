@@ -94,13 +94,13 @@ def _skill_to_dict(skill) -> dict:
     }
 
 
-@router.get("")
+@router.get("", summary="列出技能", description="扫描并返回所有可用的提示词技能(builtin + custom)")
 async def list_skills():
     skills = await _loader.scan_all()
     return {"ok": True, "data": [_skill_to_dict(s) for s in skills], "error": None}
 
 
-@router.post("")
+@router.post("", summary="创建技能", description="创建新提示词技能,写入 data/skills/{name}.md")
 async def create_skill(req: SkillCreate):
     """创建新提示词技能,写入 data/skills/{name}.md"""
     try:
@@ -116,7 +116,7 @@ async def create_skill(req: SkillCreate):
     return {"ok": True, "data": _skill_to_dict(skill), "error": None}
 
 
-@router.post("/import")
+@router.post("/import", summary="导入技能", description="从指定路径导入技能文件")
 async def import_skill(req: ImportRequest):
     try:
         skill = await _loader.import_skill(req.path)
@@ -125,7 +125,7 @@ async def import_skill(req: ImportRequest):
     return {"ok": True, "data": _skill_to_dict(skill), "error": None}
 
 
-@router.post("/sandbox/execute")
+@router.post("/sandbox/execute", summary="沙箱执行代码", description="在隔离的 Python 沙箱中执行代码,支持输入输出 schema 校验")
 async def sandbox_execute(req: SandboxExecuteRequest):
     """执行Python沙箱代码"""
     sandbox = PythonSandbox(timeout=req.timeout)
@@ -152,7 +152,7 @@ async def sandbox_execute(req: SandboxExecuteRequest):
     }
 
 
-@router.post("/{name}/execute")
+@router.post("/{name}/execute", summary="执行提示词技能", description="执行提示词技能,渲染模板并返回 prompt")
 async def execute_skill(name: str, req: SkillExecuteRequest):
     """执行提示词技能,渲染模板并返回 prompt"""
     try:
@@ -164,7 +164,7 @@ async def execute_skill(name: str, req: SkillExecuteRequest):
     return {"ok": True, "data": result, "error": None}
 
 
-@router.get("/{name}/variables")
+@router.get("/{name}/variables", summary="获取技能变量", description="返回该技能所需的变量列表")
 async def get_skill_variables(name: str):
     """返回该技能所需的变量列表"""
     skill = await _loader.load_skill(name)
@@ -180,7 +180,7 @@ async def get_skill_variables(name: str):
 # 以免被路径参数捕获
 
 
-@router.get("/market/list")
+@router.get("/market/list", summary="列出技能市场", description="列出技能市场所有可分享技能(builtin + custom)")
 async def list_marketplace():
     """列出技能市场所有可分享技能(builtin + custom)"""
     marketplace = SkillMarketplace(_loader)
@@ -188,7 +188,7 @@ async def list_marketplace():
     return {"ok": True, "data": skills, "error": None}
 
 
-@router.post("/import-markdown")
+@router.post("/import-markdown", summary="从 Markdown 导入", description="从 SKILL.md 内容导入技能")
 async def import_from_markdown(req: SkillImportMarkdownRequest):
     """从 SKILL.md 内容导入技能"""
     marketplace = SkillMarketplace(_loader)
@@ -201,7 +201,7 @@ async def import_from_markdown(req: SkillImportMarkdownRequest):
     return {"ok": True, "data": info, "error": None}
 
 
-@router.post("/{name}/export")
+@router.post("/{name}/export", summary="导出技能", description="导出技能为标准 SKILL.md 格式")
 async def export_skill(name: str):
     """导出技能为标准 SKILL.md 格式"""
     marketplace = SkillMarketplace(_loader)
@@ -235,7 +235,7 @@ def _b64encode(data: bytes) -> str:
     return _b64.b64encode(data).decode("ascii")
 
 
-@router.post("/pack")
+@router.post("/pack", summary="打包技能", description="打包技能为 .skill 格式(JSON, base64 编码返回)")
 async def pack_skill(req: PackRequest):
     """打包技能为 .skill 格式(JSON, base64 编码返回)"""
     manifest = SkillManifest(
@@ -267,7 +267,7 @@ async def pack_skill(req: PackRequest):
     }
 
 
-@router.post("/unpack")
+@router.post("/unpack", summary="解包技能", description="解包 .skill 格式")
 async def unpack_skill(req: UnpackRequest):
     """解包 .skill 格式"""
     try:
@@ -293,7 +293,7 @@ async def unpack_skill(req: UnpackRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/validate")
+@router.post("/validate", summary="验证技能包", description="验证技能包清单")
 async def validate_skill(req: ValidateRequest):
     """验证技能包清单"""
     manifest = SkillManifest(
@@ -312,7 +312,7 @@ async def validate_skill(req: ValidateRequest):
     return {"ok": True, "data": {"valid": valid, "error": err}, "error": None}
 
 
-@router.post("/install")
+@router.post("/install", summary="安装技能包", description="安装技能包")
 async def install_skill(req: InstallRequest):
     """安装技能包"""
     try:
@@ -325,7 +325,7 @@ async def install_skill(req: InstallRequest):
     return result
 
 
-@router.post("/uninstall")
+@router.post("/uninstall", summary="卸载技能包", description="卸载技能包")
 async def uninstall_skill(req: UninstallRequest):
     """卸载技能包"""
     result = await _installer.uninstall(req.name)
@@ -334,14 +334,14 @@ async def uninstall_skill(req: UninstallRequest):
     return result
 
 
-@router.get("/installed")
+@router.get("/installed", summary="列出已安装技能包", description="列出已安装的 .skill 技能包")
 async def list_installed_skills():
     """列出已安装的 .skill 技能包"""
     items = await _installer.list_installed()
     return {"ok": True, "data": items, "error": None}
 
 
-@router.post("/export-package")
+@router.post("/export-package", summary="导出技能包", description="导出 .skill 技能包(返回 base64 编码内容)")
 async def export_skill_package(req: ExportRequest):
     """导出 .skill 技能包(返回 base64 编码内容)"""
     try:
@@ -363,7 +363,7 @@ async def export_skill_package(req: ExportRequest):
 # ===== 以下为按名称操作的端点 =====
 
 
-@router.get("/{name}")
+@router.get("/{name}", summary="获取技能", description="根据名称获取技能详情(含内容)")
 async def get_skill(name: str):
     skill = await _loader.load_skill(name)
     if not skill:
@@ -371,7 +371,7 @@ async def get_skill(name: str):
     return {"ok": True, "data": {**_skill_to_dict(skill), "content": skill.content}, "error": None}
 
 
-@router.put("/{name}")
+@router.put("/{name}", summary="更新技能", description="更新技能内容(部分更新)")
 async def update_skill(name: str, req: SkillUpdate):
     """更新技能内容(部分更新)"""
     try:
@@ -387,7 +387,7 @@ async def update_skill(name: str, req: SkillUpdate):
     return {"ok": True, "data": {**_skill_to_dict(skill), "content": skill.content}, "error": None}
 
 
-@router.delete("/{name}")
+@router.delete("/{name}", summary="删除技能", description="删除指定名称的技能(仅 custom 可删除)")
 async def delete_skill(name: str):
     deleted = await _loader.delete_skill(name)
     if not deleted:

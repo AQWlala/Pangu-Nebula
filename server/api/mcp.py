@@ -31,7 +31,7 @@ router = APIRouter(prefix="/mcp", tags=["mcp"])
 # ===== 模块信息 =====
 
 
-@router.get("")
+@router.get("", summary="MCP 模块信息", description="获取 MCP 模块信息,包括已连接服务器数和已注册工具数")
 async def get_mcp():
     """获取 MCP 模块信息"""
     return {
@@ -50,13 +50,13 @@ async def get_mcp():
 # ===== 静态路径: 服务器管理 =====
 
 
-@router.get("/servers")
+@router.get("/servers", summary="列出 MCP 服务器", description="列出已连接的 MCP 客户端服务器")
 async def list_servers():
     """列出已连接的 MCP 客户端服务器"""
     return {"ok": True, "data": mcp_client.list_servers(), "error": None}
 
 
-@router.post("/servers")
+@router.post("/servers", summary="连接 MCP 服务器", description="连接新 MCP 服务器(启动子进程并执行 initialize 握手)")
 async def connect_server(req: McpConnectRequest):
     """连接新 MCP 服务器(启动子进程并执行 initialize 握手)"""
     try:

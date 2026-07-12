@@ -24,7 +24,7 @@ from .models_scheduler import SchedulerJobCreateRequest, SchedulerJobUpdateReque
 router = APIRouter(prefix="/scheduler", tags=["scheduler"])
 
 
-@router.get("")
+@router.get("", summary="调度器模块信息", description="获取定时任务调度器(基于 APScheduler)的模块信息和端点列表")
 async def get_scheduler():
     """模块信息"""
     return {
@@ -92,7 +92,7 @@ async def stop_scheduler():
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("/jobs")
+@router.get("/jobs", summary="列出定时任务", description="列出所有已创建的定时任务")
 async def list_jobs():
     """列出所有定时任务"""
     try:
@@ -105,7 +105,7 @@ async def list_jobs():
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/jobs")
+@router.post("/jobs", summary="创建定时任务", description="创建定时任务,指定名称、cron 表达式、动作和启用状态")
 async def create_job(req: SchedulerJobCreateRequest):
     """创建定时任务"""
     try:

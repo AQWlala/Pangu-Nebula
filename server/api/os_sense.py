@@ -46,7 +46,7 @@ router = APIRouter(prefix="/os_sense", tags=["os_sense"])
 # ===== 总览 =====
 
 
-@router.get("")
+@router.get("", summary="OS 感知总览", description="获取 OS 感知功能总览(剪贴板、文件监控、托盘、屏幕感知各模块状态)")
 async def get_os_sense_overview():
     """获取 OS 感知功能总览(返回各模块状态)"""
     data = {
@@ -68,7 +68,7 @@ async def get_clipboard_status():
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/clipboard/start")
+@router.post("/clipboard/start", summary="启动剪贴板监控", description="启动剪贴板监控(请求体: ClipboardWatcherConfig)")
 async def start_clipboard_watcher(req: ClipboardWatcherConfig):
     """启动剪贴板监控(请求体: ClipboardWatcherConfig)"""
     if not clipboard_watcher.get_status().get("library_available"):
@@ -127,7 +127,7 @@ async def get_file_watcher_status():
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/file-watcher/start")
+@router.post("/file-watcher/start", summary="启动文件监控", description="启动文件监控(请求体: FileWatcherConfig)")
 async def start_file_watcher(req: FileWatcherConfig):
     """启动文件监控(请求体: FileWatcherConfig)"""
     if not file_watcher.get_status().get("library_available"):
@@ -257,7 +257,7 @@ async def get_screen_status():
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/screen/capture")
+@router.post("/screen/capture", summary="手动截图", description="手动截图(请求体: ScreenCaptureRequest),可附 OCR")
 async def capture_screen(req: ScreenCaptureRequest):
     """手动截图(请求体: ScreenCaptureRequest)"""
     if not screen_service.get_status().get("library_available"):

@@ -18,7 +18,7 @@ router = APIRouter(prefix="/loop", tags=["loop"])
 _engine = LoopEngine()
 
 
-@router.post("")
+@router.post("", summary="创建循环任务", description="创建一个新的循环迭代任务,指定 Persona、目标和最大迭代次数")
 async def create_loop(req: LoopCreateRequest):
     """创建循环任务"""
     data = await _engine.create_loop(
@@ -29,7 +29,7 @@ async def create_loop(req: LoopCreateRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.get("")
+@router.get("", summary="列出循环任务", description="分页列出循环任务,可按 Persona 和状态过滤")
 async def list_loops(
     persona_id: int | None = None,
     status: str | None = None,
@@ -48,7 +48,7 @@ async def list_loops(
 
 # 注意: 带 /run 和 /cancel 子路径的路由必须在 /{loop_id} 之前定义,
 # 以避免路径参数匹配冲突(虽然此处方法不同,但保持顺序一致性)
-@router.post("/{loop_id}/run")
+@router.post("/{loop_id}/run", summary="执行循环(SSE)", description="执行循环任务,以 SSE 流式返回每次迭代的事件")
 async def run_loop(loop_id: int):
     """执行循环(SSE 流式响应)"""
     loop = await _engine.get_loop(loop_id)

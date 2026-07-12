@@ -722,7 +722,7 @@
 | T0.1 | DeepSeek Provider | ✅ | 2026-07-12 | deepseek_provider.py, 26 tests |
 | T0.2 | OpenRouter Provider | ✅ | 2026-07-12 | openrouter_provider.py, 26 tests |
 | T0.3 | Qwen/Kimi/Zhipu Provider | ✅ | 2026-07-12 | qwen/kimi/zhipu_provider.py, 26 tests |
-| T0.4 | Provider 协议抽象层 | ⬜ | | 待执行 - 完整重构 |
+| T0.4 | Provider 协议抽象层 | ✅ | 2026-07-13 | 4协议基类+8provider迁移+54 tests |
 | T0.5 | Telegram 渠道 | ✅ | 2026-07-12 | telegram_channel.py, 6 tests |
 | T0.6 | Discord 渠道 | ✅ | 2026-07-12 | discord_channel.py, 6 tests |
 | T0.7 | DingTalk 渠道 | ✅ | 2026-07-12 | dingtalk_channel.py, 6 tests |
@@ -734,7 +734,7 @@
 | T0.13 | TTS 真实接入 | ✅ | 2026-07-12 | edge-tts + mock降级 |
 | T0.14 | ASR 真实接入 | ✅ | 2026-07-12 | Whisper API + mock降级 |
 | T0.15 | Vision 真实接入 | ✅ | 2026-07-12 | provider多模态 + mock降级 |
-| T0.16 | OpenAPI 自动文档 | ⬜ | | 待执行 |
+| T0.16 | OpenAPI 自动文档 | ✅ | 2026-07-13 | 所有router加summary+6 tests |
 | T0.17 | 多模态 stub 标注 | ✅ | 2026-07-12 | video/screen stub 501 |
 | T0.18 | v0.2.0 发布 | ⬜ | | 待执行 - 集成测试+commit |
 

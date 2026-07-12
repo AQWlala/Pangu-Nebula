@@ -54,7 +54,7 @@ router = APIRouter(prefix="/channel", tags=["channel"])
 # ===== 模块信息 =====
 
 
-@router.get("")
+@router.get("", summary="渠道模块信息", description="获取 IM 渠道模块信息,包括支持的渠道类型和功能列表")
 async def get_channel():
     """获取渠道模块信息"""
     return {
@@ -101,7 +101,7 @@ async def get_channel():
 # ===== 静态路径(必须在 /{id} 之前)=====
 
 
-@router.get("/types")
+@router.get("/types", summary="支持的渠道类型", description="获取所有支持的渠道类型列表(微信/飞书/Telegram/Discord/钉钉/企业微信)")
 async def get_channel_types():
     """获取支持的渠道类型"""
     return {
@@ -111,14 +111,14 @@ async def get_channel_types():
     }
 
 
-@router.get("/list")
+@router.get("/list", summary="列出渠道", description="列出所有已注册的渠道配置")
 async def list_channels():
     """列出所有渠道"""
     data = await channel_router.list_channels()
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("")
+@router.post("", summary="注册渠道", description="注册新的 IM 渠道,指定名称、类型和配置")
 async def register_channel(req: ChannelRegisterRequest):
     """注册新渠道"""
     data = await channel_router.register_channel(
@@ -135,7 +135,7 @@ async def register_channel(req: ChannelRegisterRequest):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/send")
+@router.post("/send", summary="统一发送消息", description="通过指定渠道类型发送消息(文本/图片/卡片),目标可为用户名或 Webhook URL")
 async def send_message(req: ChannelSendRequest):
     """统一发送消息
 

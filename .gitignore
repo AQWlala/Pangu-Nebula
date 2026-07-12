@@ -14,3 +14,8 @@ nomifun-ref/
 # 忽略 spec 但保留项目自带的 pangu-nebula.spec
 *.spec
 !pangu-nebula.spec
+!pangu-nebula-mac.spec
+!pangu-nebula-linux.spec
+# Rust 构建产物
+rust/**/target/
+rust/**/Cargo.lock

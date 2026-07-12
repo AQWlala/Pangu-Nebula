@@ -1,0 +1,76 @@
+# Pages 部署 - push 到 main 时自动构建前端并部署到 GitHub Pages
+# 注意: Pages 上是纯静态展示,后端 API 不可用(需要本地运行桌面应用才有完整功能)
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:  # 支持手动触发
+
+# 允许部署到 Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只允许一个 Pages 部署
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: Type check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Build with Pages base path
+        working-directory: frontend
+        env:
+          # GitHub Pages 的 URL 是 https://<user>.github.io/<repo>/
+          # Vite 需要 base 路径与仓库名匹配
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+        run: npx vite build --base /${{ github.event.repository.name }}/
+
+      - name: Add .nojekyll (禁用 Jekyll 处理,确保 _assets 目录正常)
+        working-directory: frontend
+        run: touch dist/.nojekyll
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

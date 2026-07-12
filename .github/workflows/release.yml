@@ -1,0 +1,109 @@
+# Release 自动打包 - 打 tag (v*) 时触发,用 PyInstaller 打包 Windows exe 并上传到 release
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # 匹配 v0.1.0, v1.0.0 等
+  workflow_dispatch:  # 支持手动触发
+    inputs:
+      tag:
+        description: 'Release tag (如 v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+
+permissions:
+  contents: write  # 需要写权限来上传 release 附件
+
+jobs:
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Verify frontend dist exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "frontend\dist\index.html")) {
+            Write-Error "前端构建产物不存在: frontend\dist\index.html"
+            exit 1
+          }
+          Write-Host "✅ 前端构建产物存在"
+
+      - name: Run tests before packaging
+        run: pytest tests/ -v --tb=short
+
+      - name: Build EXE with PyInstaller
+        run: python -m PyInstaller pangu-nebula.spec --noconfirm
+
+      - name: Verify EXE
+        shell: pwsh
+        run: |
+          $exe = "dist\PanguNebula\PanguNebula.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "EXE 构建失败: $exe 不存在"
+            exit 1
+          }
+          $sizeMB = [math]::Round((Get-Item $exe).Length / 1MB, 2)
+          Write-Host "✅ EXE 构建成功: $exe ($sizeMB MB)"
+
+      - name: Clean runtime data before packaging
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force "dist\PanguNebula\data" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "dist\PanguNebula\__pycache__" -ErrorAction SilentlyContinue
+
+      - name: Package ZIP
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if (-not $tag) { $tag = "${{ github.event.inputs.tag }}" }
+          if (-not $tag) { $tag = "v0.1.0" }
+          $zipName = "PanguNebula-$tag-win64.zip"
+          Compress-Archive -Path "dist\PanguNebula" -DestinationPath "dist\$zipName" -CompressionLevel Optimal
+          $sizeMB = [math]::Round((Get-Item "dist\$zipName").Length / 1MB, 2)
+          Write-Host "✅ ZIP 打包完成: dist\$zipName ($sizeMB MB)"
+          # 保存文件名供后续步骤使用
+          "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || github.event.inputs.tag }}
+          files: dist/${{ env.ZIP_NAME }}
+          fail_on_unmatched_files: true
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PanguNebula-windows-build
+          path: dist/PanguNebula-v*-win64.zip
+          retention-days: 30

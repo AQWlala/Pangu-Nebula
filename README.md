@@ -1,619 +1,219 @@
 <div align="center">
 
-# 🌌 Pangu Nebula
+# Pangu Nebula
 
-### 具备元认知的多 Agent 认知架构
+### A Metacognitive Multi-Agent Runtime
 
-**蜂群协作 · 海绵吸收 · 黑洞压缩 · 自反思进化 · 6 层记忆图谱**
+**Swarm consensus · 6-layer memory · Self-evolving closed loop · Fully local**
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)]()
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)]()
-[![Tests](https://img.shields.io/badge/Tests-19%20passed-brightgreen)]()
-[![API](https://img.shields.io/badge/API-193+%20endpoints-blue)]()
-[![Phases](https://img.shields.io/badge/Phases-11%2F11%20DONE-success)]()
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)]()
+[![Tests](https://img.shields.io/badge/Tests-62%20passed-brightgreen)]()
+[![API](https://img.shields.io/badge/API-200+-endpoints-blue)]()
 
 </div>
 
 ---
 
-## 这是什么
+## What It Is
 
-Pangu Nebula 不是聊天框,是一个**具备元认知能力的 Agent 运行时**。
+Pangu Nebula is not a chatbot. It is an **Agent runtime with metacognition** — a system that remembers, reflects, and improves itself across every interaction.
 
-它解决了三个问题:
-1. **LLM 没有记忆** — 每次对话从零开始,无法积累经验
-2. **单 Agent 不可靠** — 单次推理容易出错,复杂任务无法并行
-3. **Agent 不会反思** — 重复犯同样的错误,无法从失败中学习
+Most AI tools are stateless functions: `output = f(input)`. Pangu Nebula is a stateful cognitive system: `output = f(input, memory, metacognition, evolution)`.
 
-核心架构:6 层记忆图谱(含元认知层)+ 蜂群并行编排 + 海绵/黑洞双引擎记忆管理 + 自反思进化闭环。全部本地运行,数据主权完整。
+It solves three hard problems that plague every LLM application:
 
----
+| Problem | Pangu Nebula's Answer |
+|---|---|
+| **LLMs have no memory** — every conversation starts from zero | 6-layer memory graph with automatic knowledge extraction and compression |
+| **Single-agent reasoning is unreliable** — one mistake, no cross-check | Swarm orchestration: multiple agents work independently, results cross-verified |
+| **Agents never learn from mistakes** — repeat the same errors forever | Self-reflection loop: strategy evaluation, error pattern recording, skill distillation |
 
-## 核心架构:元认知 Agent
-
-### 元认知是什么
-
-元认知(Metacognition)= **对认知的认知**。Agent 不只是执行任务,还能:
-
-- **知道自己知道什么**(记忆状态感知)
-- **知道自己不知道什么**(知识边界识别)
-- **评估自己的输出质量**(自评分)
-- **调整自己的策略**(反思 + 改进)
-- **从错误中学习**(教训固化)
-
-这是 Pangu Nebula 与普通 AI 聊天工具的根本区别。普通工具是**无状态函数**:`output = f(input)`。Pangu Nebula 是**有状态的认知系统**:`output = f(input, memory, metacognition, evolution)`。
-
-```
-普通 AI 工具:
-    input ──→ LLM ──→ output
-    (每次都是孤立的)
-
-Pangu Nebula:
-                        ┌─── 元认知层 (L5) ────┐
-                        │   策略评估与调整       │
-                        ↑↓                     │
-    input ──→ Advisor ──→ Orchestrator ──→ Workers
-                 ↑                              ↓
-              记忆图谱                      Verifier
-            (L0-L5)                          ↓
-                 ↑←←←←←← 吸收/压缩 ←←←←← Composer ──→ output
-                 ↓                              ↓
-            海绵引擎                        反思引擎
-            黑洞引擎                        蒸馏器
-```
-
-### L5 元认知层
-
-6 层记忆架构的最顶层,存储 Agent 的**自我认知数据**:
-
-| 存储内容 | 用途 |
-|----------|------|
-| 策略日志 | 每次任务采用了什么策略,效果如何 |
-| 错误模式 | 记录失败的推理路径,避免重蹈覆辙 |
-| 自评分记录 | Agent 对自己输出的质量评估 |
-| 策略调整历史 | 什么场景下应该用什么策略的经验 |
-| 技能命中率 | 哪些技能被频繁调用,哪些闲置 |
-
-**元认知数据不是用户写入的,是系统在运行过程中自动生成和更新的。**
+**Everything runs locally. Your data stays yours.**
 
 ---
 
-## 蜂群编排:多 Agent 并行 + 结果互验
-
-### 为什么需要蜂群
-
-单个 LLM 调用的问题:
-- 一次推理可能出错,无法自查
-- 复杂任务串行处理慢
-- 没有交叉验证,输出可信度未知
-
-蜂群的解法:**同一任务派多个 Worker 独立完成,结果互验,少数服从多数**。
-
-### A-O-W 编排链路
+## Architecture at a Glance
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    蜂群编排完整链路                        │
-├──────────────────────────────────────────────────────────┤
-│                                                          │
-│  用户输入                                                │
-│    │                                                     │
-│    ▼                                                     │
-│  ┌─────────────┐                                        │
-│  │  Advisor     │  Persona 主智能体(有角色设定)         │
-│  │  (主控)      │  理解需求 → 可与用户多轮澄清           │
-│  │              │  查询 L0/L1 记忆补充上下文             │
-│  └──────┬──────┘                                        │
-│         │ 确认需求后下发                                 │
-│         ▼                                               │
-│  ┌─────────────┐                                        │
-│  │Orchestrator │  将需求拆解为 subtask 列表              │
-│  │  (编排器)    │  分配 Worker,控制并行度               │
-│  │              │  监控执行,处理失败重试                  │
-│  └──────┬──────┘                                        │
-│         │ 并行派发                                       │
-│         ▼                                               │
-│  ┌─────────────────────────────────┐                    │
-│  │ Worker 1  (调用 LLM + 工具)     │                    │
-│  │ Worker 2  (调用 LLM + 工具)  ───┤ 各自独立推理        │
-│  │ Worker 3  (调用 LLM + 工具)     │ 结果可能不同        │
-│  └─────────────────┬───────────────┘                    │
-│                    │                                    │
-│                    ▼                                    │
-│  ┌─────────────┐                                        │
-│  │  Verifier   │  多 Agent 结果互验                     │
-│  │  (验证器)    │  少数服从多数,标记分歧                 │
-│  │              │  不一致 → 触发重试或标记需人工介入     │
-│  └──────┬──────┘                                        │
-│         │                                               │
-│         ▼                                               │
-│  ┌─────────────┐                                        │
-│  │  Composer   │  汇总验证通过的结果                    │
-│  │  (汇总器)    │  调用 LLM 生成最终输出                │
-│  │              │  SSE 流式返回前端                      │
-│  └──────┬──────┘                                        │
-│         │                                               │
-│         ▼                                               │
-│  最终输出 + 后台异步(海绵吸收/技能蒸馏/反思)             │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
-```
-
-### 关键设计决策
-
-| 决策 | 理由 |
-|------|------|
-| Advisor 有 Persona,Worker 没有 | 输出风格由主控统一,Worker 专注执行不带个性 |
-| Worker 数量 2-5 可配 | 太少无法互验,太多浪费 Token |
-| Verifier 少数服从多数 | 不要求一致,多数一致即可通过,标记分歧供参考 |
-| 失败可重试 | 单个 Worker 失败不阻塞,Orchestrator 重新派发 |
-
-### 多 Agent 互验的价值
-
-不是"多个 Worker 凑答案",而是**结构化的质量保障**:
-
-```
-场景: 用户要求生成技术方案
-
-Worker 1: 方案A (用 K8s)
-Worker 2: 方案A (用 K8s)     ← 多数一致
-Worker 3: 方案B (用 Docker Compose)
-
-Verifier 判定: 方案A 通过,但标记"存在少数分歧(方案B)"
-Composer 汇总: 以方案A 为主,参考方案B 的差异点补充说明
-
-最终输出: 主方案A + "另有方案B 可作备选" + 分歧原因分析
-```
-
-**比单次调用多了:分歧检测 + 备选方案 + 可信度信号。**
-
----
-
-## 6 层记忆图谱:海绵吸收 + 黑洞压缩
-
-### 为什么不用向量数据库
-
-传统做法:把所有文本 chunk 后存入向量库,用相似度搜索。问题:
-
-- 语义层级混杂(当前对话上下文和三个月前的知识点混在一起)
-- 无结构化分层,所有信息平等对待
-- 只能搜索,无法"遗忘"或"压缩"
-- 无法表达记忆之间的关联(图谱)
-
-Pangu Nebula 的做法:**按认知科学 6 层分层,配双引擎维持记忆健康**。
-
-### 6 层结构
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  L5  元认知层     Agent 自我反思、策略调整记录          │
-│      │            错误模式、自评分、策略命中历史         │
-│      │            (系统自动生成,非用户写入)            │
-│      │                                                  │
-│  L4  程序记忆     技能、模板、可复用工作流              │
-│      │            (成功任务蒸馏出的可执行模式)          │
-│      │                                                  │
-│  L3  语义记忆     从对话中提炼的知识点、事实            │
-│      │            (去上下文化的抽象知识)                │
-│      │                                                  │
-│  L2  情节记忆     完整对话历史,带时间线                │
-│      │            (可追溯的交互记录)                    │
-│      │                                                  │
-│  L1  事件记忆     近期交互,短期上下文窗口              │
-│      │            (当前会话的活跃上下文)                │
-│      │                                                  │
-│  L0  工作记忆     当前对话的即时上下文                  │
-│                   (本轮对话的 messages)                 │
-└─────────────────────────────────────────────────────────┘
-```
-
-**信息从 L0 向上流动,每经过一层都经历"提炼":**
-- L0→L1:当前轮次结束,上下文归入事件记忆
-- L1→L2:事件记忆积累后,归档为情节历史
-- L2→L3:从历史中提炼出去上下文化的知识
-- L3→L4:反复验证的知识固化为可复用技能
-- L4→L5:技能使用数据成为元认知
-
-### 海绵引擎(Sponge Engine)— 吸收
-
-**不是被动存储,是主动从对话中提取有价值信息。**
-
-```
-对话流
-  │
-  ▼
-海绵引擎监听
-  │
-  ├─ 检测到事实性陈述 ──→ 提炼为知识点 ──→ 写入 L3 语义记忆
-  │
-  ├─ 检测到操作步骤 ────→ 提炼为技能 ────→ 写入 L4 程序记忆
-  │
-  ├─ 检测到决策点 ──────→ 记录策略选择 ──→ 写入 L5 元认知
-  │
-  └─ 检测到 [[链接]] ────→ 建立双向链接 ──→ 更新图谱关系
-```
-
-海绵引擎**在后台异步执行**,不阻塞用户对话。它的存在让 Agent 能够"自动学习",而不需要用户手动整理笔记。
-
-### 黑洞引擎(Black Hole Engine)— 压缩
-
-**记忆无限增长会拖慢系统。黑洞引擎负责"遗忘"和"压缩"。**
-
-```
-触发条件: 记忆数量超过阈值 / 时间超过保留期
-  │
-  ▼
-黑洞引擎启动
-  │
-  ├─ L1 事件记忆
-  │   超过 N 条 ──→ 合并相似事件 ──→ 归档至 L2
-  │
-  ├─ L2 情节记忆
-  │   超过 N 天 ──→ 提炼核心信息 ──→ 压缩至 L3
-  │   (保留摘要,删除细节,可追溯)
-  │
-  ├─ L3 语义记忆
-  │   检测到重复/矛盾 ──→ 合并或标记冲突
-  │
-  └─ 冗余检测
-      跨层扫描重复信息 ──→ 保留最高层级,清理低层级副本
-```
-
-**关键设计:压缩不是删除,是"提炼 + 归档"。** L2 压缩到 L3 时,原始 L2 保留索引,需要时可回溯完整历史。
-
-### 双向链接 + 知识图谱
-
-记忆不是孤立的条目,而是**网状关联结构**:
-
-```
-[[Python 异步编程]]
-    │
-    ├─ 反向链接(谁引用了我)
-    │   ├─ [[FastAPI 性能优化]]       (L3 语义)
-    │   ├─ [[asyncio 事件循环]]       (L3 语义)
-    │   └─ [[项目: 后端架构设计]]     (L2 情节)
-    │
-    └─ 正向链接(我引用了谁)
-        ├─ [[协程 vs 线程]]           (L3 语义)
-        └─ [[aiohttp 实践]]           (L4 程序)
-
-图谱可视化:
-    ●───●───●
-    │   │   │
-    ●───●───●───●
-        │
-        ●───●
-```
-
-- 记忆内容中用 `[[标题]]` 互引
-- 写入时自动发现可链接的已有记忆(智能推荐)
-- 自动构建反向链接
-- 图谱可视化:节点 + 连线,按层级/标签/时间过滤
-
----
-
-## 自反思进化闭环
-
-### 反思(Reflection)— 从经验中学习
-
-**这是元认知层的核心机制。** 系统不是执行完就忘,而是每次执行后自动反思:
-
-```
-任务执行完成
-  │
-  ▼
-┌─────────────────────────────────┐
-│  1. Reflect(反思)               │
-│     分析本次执行:                │
-│     - 目标是什么?                │
-│     - 采用了什么策略?            │
-│     - 结果质量如何?(自评分)     │
-│     - 哪些步骤有效?              │
-│     - 哪些步骤多余/出错?         │
-└──────────────┬──────────────────┘
-               │
-               ▼
-┌─────────────────────────────────┐
-│  2. Plan(规划)                  │
-│     基于反思调整策略:            │
-│     - 更新策略优先级             │
-│     - 标记需改进的技能           │
-│     - 记录应回避的错误模式       │
-│     写入 L5 元认知层             │
-└──────────────┬──────────────────┘
-               │
-               ▼
-┌─────────────────────────────────┐
-│  3. Execute(执行)               │
-│     下次遇到类似任务时:          │
-│     - 优先使用高评分策略         │
-│     - 回避已知的错误模式         │
-│     - 参考上次的经验调整 prompt  │
-└──────────────┬──────────────────┘
-               │
-               ▼
-┌─────────────────────────────────┐
-│  4. Integrate(整合)             │
-│     多次验证有效的策略:          │
-│     - 固化为新技能(蒸馏)         │
-│     - 写入 L4 程序记忆           │
-│     - 下次可直接调用,不再推理   │
-└─────────────────────────────────┘
-```
-
-### 技能蒸馏(Skill Distillation)
-
-**成功路径自动变成可复用技能:**
-
-```
-任务成功完成
-  │
-  ▼
-蒸馏器分析执行过程
-  │
-  ├─ 识别可复用模式
-  │   "这个任务的解决步骤可以模板化"
-  │
-  ├─ 生成技能定义
-  │   name: "技术方案生成器"
-  │   trigger: "用户要求生成 XX 技术方案"
-  │   steps: ["分析需求", "调研现状", "设计架构", "输出文档"]
-  │   tools: ["搜索", "图谱查询"]
-  │
-  └─ 写入 L4 + 注册到技能市场
-      下次类似任务直接调用,不再从零推理
-```
-
-### 错误学习
-
-**失败同样有价值:**
-
-```
-任务执行失败
-  │
-  ▼
-错误分析
-  │
-  ├─ 识别失败原因
-  │   "在 XX 步骤因为 YY 原因失败"
-  │
-  ├─ 记录错误模式
-  │   写入 L5 元认知
-  │   "遇到 ZZ 场景时,不要用 WW 策略"
-  │
-  └─ 下次自动回避
-      检测到类似场景 → 查询 L5 → 回避已知错误路径
-```
-
-### Loop 循环迭代
-
-不是一次性输出,而是**带预算的多轮自优化**:
-
-```
-初始输出
-  │
-  ▼
-自评: 质量达标?
-  ├─ 是 ──→ 输出
-  └─ 否 ──→ 迭代优化
-              │
-              ├─ 分析不足
-              ├─ 调整策略
-              ├─ 重新生成
-              └─ 再次自评 ──→ (循环)
-
-预算控制(硬约束):
-  Token 预算: 累计消耗超限则停止
-  时间预算: 超时则降级输出当前最佳
-  金额预算: 超成本则中断
-  迭代次数: 硬上限防死循环
-
-全程审计: 每次迭代记录策略变化 + Token 消耗 + 质量评分
+User Input
+  |
+  v
+Advisor (loads memory context, persona)
+  |
+  v
+Orchestrator (decomposes into 2-5 parallel subtasks)
+  |
+  +-----> Worker 1 (LLM + tools)
+  +-----> Worker 2 (LLM + tools)     independent reasoning
+  +-----> Worker 3 (LLM + tools)
+  |
+  v
+Verifier (cross-check results, majority consensus)
+  |
+  v
+Composer (aggregates final output, SSE streaming)
+  |
+  v
+Background async (non-blocking):
+  - Sponge Engine: extract knowledge from conversation -> write to memory
+  - Black Hole Engine: compress overflowing memory layers
+  - Distiller: solidify proven success paths into reusable skills
+  - Reflection: analyze execution quality -> write metacognition layer
 ```
 
 ---
 
-## 完整认知循环
+## Core Capabilities
 
-把以上所有机制串起来,一次完整任务的数据流:
+### 6-Layer Memory Graph
 
-```
-用户输入
-  │
-  ▼
-[1] Advisor 加载上下文
-    └→ 查询 L0(当前上下文) + L1(近期事件) + L3(相关知识)
-    └→ 查询 L5(是否有类似任务的策略经验?)
-    └→ Persona 设定输出风格
-  │
-  ▼
-[2] Orchestrator 拆解任务
-    └→ 将需求分解为 subtask 列表
-    └→ 检查 L4 是否有可复用技能
-    └→ 派发 2-5 个 Worker
-  │
-  ▼
-[3] Worker 并行执行
-    ├→ Worker 1: 调用 LLM + 工具 + 查询记忆
-    ├→ Worker 2: 独立推理(不参考 Worker 1)
-    └→ Worker 3: 独立推理
-  │
-  ▼
-[4] Verifier 结果互验
-    └→ 比对 Worker 结果
-    └→ 多数一致 → 通过
-    └→ 分歧 → 标记 + 可选重试
-  │
-  ▼
-[5] Composer 汇总输出
-    └→ SSE 流式返回前端
-  │
-  ▼
-[6] 后台异步(不阻塞用户)
-    ├→ 海绵引擎: 从对话中吸收新知识 → 写入 L1/L3
-    ├→ 黑洞引擎: 检查记忆容量 → 压缩归档
-    ├→ 蒸馏器: 成功路径 → 生成新技能 → 写入 L4
-    ├→ 反思引擎: 分析执行过程 → 写入 L5
-    ├→ Wiki 编译: 生成知识笔记
-    └→ 进化引擎: 更新策略优先级
-```
+Memories are not flattened into a vector database. They are organized by cognitive depth:
 
-**步骤 1-5 实时,步骤 6 异步。系统在用户看不到的地方持续学习。**
+| Layer | Name | Stores |
+|---|---|---|
+| **L0** | Working Memory | Immediate conversation context |
+| **L1** | Episodic Memory | Recent interaction records |
+| **L2** | Narrative Memory | Complete conversation history with timelines |
+| **L3** | Semantic Memory | Decontextualized knowledge points and facts |
+| **L4** | Procedural Memory | Skills, templates, reusable workflows |
+| **L5** | Metacognition | Strategy logs, error patterns, self-evaluation records |
 
----
+Information flows upward through distillation. L5 data is not written by users — it is **auto-generated by the system** as it operates.
 
-## 架构分层
+Memories are interconnected via `[[bidirectional links]]`, forming a knowledge graph that the Agent can navigate during reasoning.
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                        用户交互层                              │
-│         PyWebView 原生窗口 · Preact UI · SSE 流式              │
-├──────────────────────────────────────────────────────────────┤
-│                     编排调度层(蜂群)                          │
-│  Advisor → Orchestrator → Workers → Verifier → Composer      │
-├──────────────────────────────────────────────────────────────┤
-│                    认知引擎层(核心)                           │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐     │
-│  │ 6层记忆   │  │ 海绵引擎  │  │ 黑洞引擎  │  │ 反思引擎  │     │
-│  │ (L0-L5)  │  │ (吸收)   │  │ (压缩)   │  │ (进化)   │     │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘     │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                   │
-│  │ 技能蒸馏  │  │ Loop迭代  │  │ Wiki编译  │                   │
-│  └──────────┘  └──────────┘  └──────────┘                   │
-├──────────────────────────────────────────────────────────────┤
-│                       协议与适配层                             │
-│  LLM Provider Adapter · MCP Client/Server · IM Bridge        │
-│  Scheduler (cron) · Sync (CRDT) · OS Sense · Multimodal      │
-├──────────────────────────────────────────────────────────────┤
-│                        安全与身份层                            │
-│  E2EE · ACL · Injection Guard · SSRF Guard · OAuth · DID     │
-├──────────────────────────────────────────────────────────────┤
-│                        数据与存储层                            │
-│  SQLite (aiosqlite) · FTS5 全文搜索 · 文件系统 · 内存状态     │
-└──────────────────────────────────────────────────────────────┘
-```
+### Swarm Orchestration
+
+Complex tasks are decomposed, dispatched to 2–5 workers, and results are verified by consensus. This is not "more agents guessing" — it is structured quality assurance:
+
+- Workers operate independently with no shared state
+- Verifier uses majority voting, flags dissent for human review
+- Failed workers are retried without blocking the pipeline
+- Dissenting opinions are preserved as alternative paths in the final output
+
+### Self-Evolution Closed Loop
+
+After every task, the system automatically reflects:
+
+1. **Reflect**: what strategy was used? was the output good? which steps worked?
+2. **Plan**: update strategy priority, flag error patterns to avoid
+3. **Execute**: next similar task uses higher-scoring strategies
+4. **Integrate**: repeatedly-validated strategies are distilled into reusable skills
+
+### Dual-Engine Memory Management
+
+- **Sponge Engine**: passively extracts facts, procedures, and decisions from conversations — writes to L3/L4/L5 in the background
+- **Black Hole Engine**: detects memory bloat and compresses lower layers upward. Compression is not deletion — it is extraction and archival, with traceability preserved
+
+### Skill Marketplace
+
+Successful task paths are automatically distilled into reusable skills with prompt templates, variable substitution, and sandboxed code execution. Skills can be shared, imported, and executed in isolation.
 
 ---
 
-## 工程化设计
+## Technical Stack
 
-### 模块化
+| Layer | Choice | Rationale |
+|---|---|---|
+| Backend | Python 3.11 + FastAPI | Native async, dominant AI ecosystem |
+| Database | SQLite (aiosqlite) + FTS5 | Zero-config, full-text search without vector DB |
+| ORM | SQLAlchemy 2.0 async | Type-safe, Alembic-ready |
+| Frontend | Preact + TypeScript + Tailwind CSS 3 | Lightweight, type-safe, utility-first |
+| Desktop | PyWebView | Native window, no Electron bloat |
+| Packaging | PyInstaller (onedir) | Single-folder distribution |
+| LLM | Unified adapter (OpenAI / Anthropic / Gemini) | One interface, any provider |
+| Auth | OAuth 2.0 + DID + API tokens | Flexible identity layer |
+| Sync | CRDT (LWW-Register + OR-Set) | Conflict-free cross-device sync |
 
-27 个路由模块,每个自包含:API 层 + Service 层 + 数据模型。
-
-```
-server/
-├── api/           # 路由层(薄,参数校验+转发)
-│   ├── chat.py / persona.py / swarm.py / memory.py
-│   ├── skills.py / wiki.py / sync.py / mcp.py
-│   └── ... (27 个模块, 193+ 端点)
-├── services/      # 业务层(厚,核心逻辑)
-│   ├── memory_service.py        # 记忆 CRUD
-│   ├── sponge_engine.py         # 海绵吸收
-│   ├── blackhole_engine.py      # 黑洞压缩
-│   ├── swarm_orchestrator.py    # 蜂群编排
-│   ├── skill_distiller.py       # 技能蒸馏
-│   ├── evolution_engine.py      # 进化管道
-│   └── ... (40+ 服务)
-├── providers/     # LLM 适配层
-│   ├── base.py              # 抽象接口
-│   ├── openai_compat.py     # 一个类覆盖 6 家国产大厂
-│   └── ... (7 个适配器)
-└── db/            # 数据层
-```
-
-### Provider 适配
-
-一套接口,多厂商切换:
-
-```python
-class BaseProvider:
-    async def chat(messages, **kwargs) -> str
-    async def chat_stream(messages, **kwargs) -> AsyncIterator[str]
-    async def chat_with_image(messages, image, **kwargs) -> str
-
-class OpenAICompatibleProvider(BaseProvider):
-    # 通义/文心/GLM/Kimi/豆包/混元 仅 endpoint+model 不同
-    # 统一走 OpenAI 兼容协议
-```
-
-### 可选依赖模式
-
-核心功能不依赖重型第三方库,全部 try/except 导入:
-
-```python
-try:
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
-    SCHEDULER_AVAILABLE = True
-except ImportError:
-    SCHEDULER_AVAILABLE = False
-```
-
-裸安装能跑核心功能,需要某模块时再装对应依赖。
-
-### 扩展点
-
-| 扩展点 | 方式 |
-|--------|------|
-| 新增 LLM 厂商 | 继承 BaseProvider,实现 chat/chat_stream |
-| 新增工具 | MCP Server 注册,tools/call 自动发现 |
-| 新增技能 | Skill 模块 + 沙箱执行 |
-| 新增 IM 渠道 | 实现 Channel 接口 |
-| 新增记忆层级 | 扩展 Memory model |
-| 新增进化阶段 | 扩展 Evolution pipeline |
+**Core principle: avoid dependencies where possible, stay local where possible.**
 
 ---
 
-## 快速开始
+## Project Structure
+
+```
+Pangu Nebula/
+├── launch.py              # Desktop app entry point
+├── server/
+│   ├── api/               # 24 route modules, 200+ endpoints
+│   ├── services/          # 47 service modules (core logic)
+│   │   ├── memory_service.py      # Memory CRUD + graph queries
+│   │   ├── sponge_engine.py       # Automatic knowledge absorption
+│   │   ├── blackhole_engine.py    # Memory compression
+│   │   ├── swarm_orchestrator.py  # Multi-agent coordination
+│   │   ├── evolution_engine.py    # 4-phase evolution pipeline
+│   │   ├── skill_engine.py        # Prompt template rendering
+│   │   ├── distiller.py           # Skill distillation
+│   │   ├── loop_engine.py         # Iterative self-improvement
+│   │   └── ...                    # 40+ more services
+│   ├── core/              # Public API re-exports
+│   ├── providers/         # LLM provider adapters
+│   ├── tools/             # Built-in tool registry
+│   └── db/                # ORM models + engine
+├── frontend/              # Preact SPA
+├── tests/                 # 62 tests and growing
+├── data/                  # Runtime data (DB, keys, skills)
+└── docs/                  # Documentation
+```
+
+---
+
+## Quick Start
 
 ```bash
-git clone git@github.com:AQWlala/Pangu-Nebula.git
+git clone https://github.com/AQWlala/Pangu-Nebula.git
 cd Pangu-Nebula
 
-# 后端
+# Backend
 python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 前端
+# Frontend
 cd frontend && npm install && npm run build && cd ..
 
-# 启动
-python launch.py              # 桌面应用
-python scripts/dev.py         # 开发模式(热重载)
-python scripts/build.py       # 一键打包
+# Launch
+python launch.py              # Desktop app
+python launch.py --no-window  # Backend only (for debugging)
 ```
 
----
-
-## 项目状态
-
-| 维度 | 数据 |
-|------|------|
-| 架构层级 | 6 层(交互/编排/认知引擎/协议/安全/数据) |
-| 记忆层级 | 6 层(L0-L5,含元认知) |
-| API 端点 | 193+ |
-| 路由模块 | 27 |
-| 服务模块 | 40+ |
-| LLM 适配器 | 7 |
-| 测试 | 19 passed |
-| 启动耗时 | 1.51s |
-| Phase 完成度 | 11/11 (100%) |
+Requires Python 3.11+ and Node.js 20+.
 
 ---
 
-## 技术栈
+## Security
 
-| 层 | 选型 | 理由 |
-|----|------|------|
-| 后端 | Python 3.11 + FastAPI | 异步原生,AI 生态最广 |
-| 数据库 | SQLite (aiosqlite) | 零配置,纯本地 |
-| 全文搜索 | SQLite FTS5 | 不引入向量数据库,减少依赖 |
-| 前端 | Preact + TypeScript | 轻量,类型安全 |
-| 桌面 | PyWebView | 原生窗口,非 Electron |
-| 打包 | PyInstaller | onedir 模式,独立 .exe |
-| LLM | 统一 Adapter | 一套接口覆盖所有厂商,无锁定 |
+- **E2EE keychain**: AES-256-GCM encrypted credential storage with DPAPI-protected master key (Windows) / 0600 file permissions (Linux/macOS)
+- **ACL**: resource-level access control rules
+- **Injection guard**: prompt injection pattern detection
+- **SSRF guard**: outbound HTTP request validation
+- **Sandbox**: isolated Python code execution with timeout and memory limits
+- **Audit logging**: full operation trail
+- **Key rotation**: automated encryption key cycling
 
-**核心原则:能不依赖就不依赖,能本地就不上云。**
+---
+
+## Extensibility
+
+| Extension Point | How |
+|---|---|
+| New LLM provider | Subclass `BaseProvider`, implement `generate()` |
+| New tool | Register with `@register_tool` decorator |
+| New skill | Write Markdown with frontmatter, drop in `data/skills/` |
+| New IM channel | Implement `Channel` interface |
+| New memory layer | Extend `Memory` ORM model |
+| New evolution phase | Extend `EvolutionEngine` pipeline |
+
+---
+
+## Roadmap
+
+| Milestone | Focus |
+|---|---|
+| **v0.1.0** (current) | Core cognitive architecture: 6-layer memory, swarm, evolution loop |
+| **v0.2.0** | DAG task orchestration, Telegram/Discord channels, macOS/Linux desktop |
+| **v0.3.0** | Image generation, vision pipeline, plugin system |
+| **v1.0.0** | Stable API, migration system, production hardening |
 
 ---
 
@@ -625,7 +225,7 @@ MIT
 
 <div align="center">
 
-**Pangu Nebula — 有记忆、会反思、能进化的 Agent 运行时。**
+**Pangu Nebula — an Agent runtime that remembers, reflects, and evolves.**
 
 [GitHub](https://github.com/AQWlala/Pangu-Nebula) · [Issues](https://github.com/AQWlala/Pangu-Nebula/issues)
 

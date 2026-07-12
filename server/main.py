@@ -1,10 +1,9 @@
-import sys
+﻿import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import uvicorn
 from dotenv import load_dotenv
 
 from .config import load_settings, APP_DIR
@@ -33,10 +32,19 @@ from .api.distiller import router as distiller_router
 from .api.audit import router as audit_router
 from .api.browser import router as browser_router
 from .api.health import router as health_check_router
-from .tools import builtin_tools  # noqa: F401 - register builtin tools
+from .tools import builtin_tools  # noqa: F401
 
 load_dotenv()
 settings = load_settings()
+
+
+def _parse_cors_origins(raw: str, debug: bool) -> list[str]:
+    if debug:
+        return ["*"]
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    if not origins:
+        return ["http://127.0.0.1:7860"]
+    return origins
 
 
 @asynccontextmanager
@@ -47,15 +55,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan, debug=settings.debug)
 
+cors_origins = _parse_cors_origins(settings.cors_origins, settings.debug)
+allow_credentials = "*" not in cors_origins and not settings.debug
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 前端静态资源目录:打包后在 _MEIPASS/frontend/dist,开发时在项目根/frontend/dist
+# Static frontend assets
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
     _dist = Path(sys._MEIPASS) / "frontend" / "dist"
 else:
@@ -92,8 +103,3 @@ app.include_router(health_check_router)
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
-
-
-if __name__ == "__main__":
-    uvicorn.run("server.main:app", host="0.0.0.0", port=settings.server_port, reload=settings.debug)
-

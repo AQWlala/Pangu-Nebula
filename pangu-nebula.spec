@@ -36,7 +36,13 @@ if os.path.isdir(data_dir):
     datas.append((data_dir, 'data'))
 
 # ---------- 隐藏导入(hiddenimports) ----------
-hiddenimports = [
+from PyInstaller.utils.hooks import collect_submodules
+
+# 自动收集 server 包下所有子模块(避免遗漏动态导入)
+hiddenimports = collect_submodules('server')
+
+# 额外添加第三方动态导入
+hiddenimports += [
     # uvicorn 子模块(动态导入)
     'uvicorn.logging',
     'uvicorn.loops.auto',
@@ -49,47 +55,12 @@ hiddenimports = [
     # FastAPI / Starlette 中间件与静态文件
     'fastapi.middleware.cors',
     'starlette.staticfiles',
-    # 后端 API 模块(路由由 main.py 动态注册,需显式声明)
-    'server.api.chat',
-    'server.api.persona',
-    'server.api.swarm',
-    'server.api.memory',
-    'server.api.skills',
-    'server.api.wiki',
-    'server.api.evolution',
-    'server.api.loop',
-    'server.api.sync',
-    'server.api.sync_device',
-    'server.api.oauth',
-    'server.api.did',
-    'server.api.channel',
-    'server.api.mcp',
-    'server.api.scheduler',
-    'server.api.security',
-    'server.api.multimodal',
-    'server.api.os_sense',
-    'server.api.providers',
-    'server.api.tools',
-    'server.api.distiller',
-    'server.api.audit',
-    'server.api.browser',
-    'server.api.health',
-    'server.api.models',
-    'server.api.models_channel',
-    'server.api.models_mcp',
-    'server.api.models_scheduler',
-    'server.api.models_sync',
-    # Provider 实现
-    'server.providers.openai_provider',
-    'server.providers.gemini_provider',
-    'server.providers.anthropic_provider',
-    'server.providers.base',
-    'server.providers.registry',
     # pydantic-settings
     'pydantic_settings',
     # python-dotenv
     'dotenv',
-]
+    # webview (pywebview) - 用 collect_submodules 收集全部子模块
+] + collect_submodules('webview')
 
 # ---------- 排除模块(excludes) ----------
 excludes = [

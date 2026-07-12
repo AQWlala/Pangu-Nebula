@@ -34,23 +34,23 @@ def find_available_port(start_port=7860):
 
 
 def create_window(port, server_shutdown_func):
-    """创建 PyWebView 桌面窗口 (延迟导入,仅桌面模式需要)。"""
+    """创建 PyWebView 桌面窗口 (延迟导入,仅桌面模式需要)。
+
+    pywebview 6.x 移除了 on_closed 参数,改为用 webview.start() 阻塞特性:
+    窗口关闭后 start() 返回,再执行清理。
+    """
     import webview  # 延迟导入: pywebview 是可选依赖,仅桌面模式需要
 
     url = f"http://localhost:{port}"
-
-    def on_closed():
-        server_shutdown_func()
-
     webview.create_window(
         title="Pangu Nebula",
         url=url,
         width=1280,
         height=800,
         frameless=True,
-        on_closed=on_closed,
     )
-    webview.start()
+    webview.start()  # 阻塞直到窗口关闭
+    server_shutdown_func()  # 窗口关闭后清理后端
 
 
 def parse_args():
@@ -90,14 +90,22 @@ def parse_args():
 
 
 def start_server(host, port, reload=False):
-    """启动 uvicorn 后端服务。"""
-    uvicorn.run(
-        "server.main:app",
-        host=host,
-        port=port,
-        reload=reload,
-        log_level="info",
-    )
+    """启动 uvicorn 后端服务。
+
+    reload 模式(开发时)用字符串导入以便热重载;
+    非 reload 模式(打包后)直接传入 app 对象,避免 PyInstaller 环境下 importlib 动态导入失败。
+    """
+    if reload:
+        uvicorn.run(
+            "server.main:app",
+            host=host,
+            port=port,
+            reload=True,
+            log_level="info",
+        )
+    else:
+        from server.main import app
+        uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 def wait_for_server(host, port, timeout=10):

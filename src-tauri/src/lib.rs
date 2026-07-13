@@ -2,11 +2,13 @@
 //!
 //! P0-W2: 集成 sidecar supervisor — spawn Python + 端口协商 + /health/ready 轮询。
 //! P0-W3: IPC 适配层 — invoke('http_proxy') → reqwest → Python sidecar (CRUD 走代理)。
+//! P0-W4: 窗口/托盘 — 系统托盘 + 单实例锁 + 最小化到托盘 + sidecar 就绪后显示窗口。
 
 use tracing_subscriber;
 
 mod ipc;
 mod sidecar;
+mod tray;
 
 use ipc::http_proxy;
 use sidecar::{shutdown_sidecar, spawn_and_wait_ready, SidecarState};
@@ -23,13 +25,23 @@ fn init_tracing() {
 /// Tauri 应用入口
 ///
 /// P0-W2: setup 钩子中 spawn Python sidecar + 等待 /health/ready 就绪。
+/// P0-W4: 单实例锁 + 系统托盘 + 最小化到托盘。
 /// 前端通过监听 "sidecar-ready" 事件获取 port/token。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_tracing();
-    tracing::info!("Pangu Nebula Tauri shell starting (P0-W2 sidecar PoC)");
+    tracing::info!("Pangu Nebula Tauri shell starting (P0-W4 window/tray)");
 
     tauri::Builder::default()
+        // P0-W4.3: 单实例锁 — 必须第一个注册 (Tauri 2 要求)
+        // 第二次启动时聚焦已有窗口
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+                tracing::info!("Single instance: focused existing window");
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -42,6 +54,11 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
 
+            // P0-W4.2: 初始化系统托盘
+            if let Err(e) = tray::setup_tray(&app_handle) {
+                tracing::error!("Failed to setup tray: {}", e);
+            }
+
             // 在独立线程中 spawn sidecar (避免阻塞 setup 钩子导致窗口不显示)
             // setup 钩子必须快速返回,Tauri 才能创建窗口
             tauri::async_runtime::spawn(async move {
@@ -52,12 +69,24 @@ pub fn run() {
                             handshake.port,
                             &handshake.token[..8]
                         );
+
+                        // P0-W4: sidecar 就绪后显示主窗口
+                        // (tauri.conf.json 中 visible:false, 启动时隐藏)
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            tracing::info!("Main window shown (sidecar ready)");
+                        }
                     }
                     Err(e) => {
                         tracing::error!("Sidecar spawn failed: {}", e);
                         app_handle
                             .emit("sidecar-error", serde_json::json!({ "error": e }))
                             .ok();
+                        // sidecar 失败也显示窗口 (让用户看到错误)
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.show();
+                        }
                     }
                 }
             });
@@ -66,7 +95,14 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 窗口关闭时优雅关闭 sidecar
+            // P0-W4.3: 最小化到托盘 — 拦截关闭按钮,隐藏而非退出
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+                tracing::info!("Window close prevented, hidden to tray");
+            }
+
+            // 窗口真正销毁时 (托盘退出) 优雅关闭 sidecar
             if let tauri::WindowEvent::Destroyed = event {
                 tracing::info!("Window destroyed, shutting down sidecar...");
                 shutdown_sidecar(window.app_handle());

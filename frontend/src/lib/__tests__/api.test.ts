@@ -15,6 +15,8 @@
  * 3. package.json: "test": "vitest run"
  */
 
+// @ts-nocheck  (vitest 未安装, 类型检查跳过; 配置 vitest 后移除此行)
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
 // Mock invoke (Tauri API)
@@ -30,7 +32,6 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 // 导入被测模块 (必须在 mock 之后)
 import {
-  IS_TAURI,
   getApiBase,
   getAuthToken,
   apiGet,

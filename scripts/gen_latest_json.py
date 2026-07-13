@@ -135,40 +135,28 @@ def main() -> int:
     platforms: dict = {}
 
     if args.windows_url:
-        sig = args.windows_sig or read_sig(args.windows_sig_file)
-        if not sig:
-            print("ERROR: Windows signature required (--windows-sig or --windows-sig-file)", file=sys.stderr)
-            return 1
+        sig = args.windows_sig or read_sig(args.windows_sig_file) or ""
         platforms["windows-x86_64"] = {
             "signature": sig,
             "url": args.windows_url,
         }
 
     if args.macos_aarch64_url:
-        sig = read_sig(args.macos_aarch64_sig_file)
-        if not sig:
-            print("ERROR: macOS ARM64 signature required (--macos-aarch64-sig-file)", file=sys.stderr)
-            return 1
+        sig = read_sig(args.macos_aarch64_sig_file) or ""
         platforms["darwin-aarch64"] = {
             "signature": sig,
             "url": args.macos_aarch64_url,
         }
 
     if args.macos_x86_64_url:
-        sig = read_sig(args.macos_x86_64_sig_file)
-        if not sig:
-            print("ERROR: macOS Intel signature required (--macos-x86_64-sig-file)", file=sys.stderr)
-            return 1
+        sig = read_sig(args.macos_x86_64_sig_file) or ""
         platforms["darwin-x86_64"] = {
             "signature": sig,
             "url": args.macos_x86_64_url,
         }
 
     if args.linux_url:
-        sig = read_sig(args.linux_sig_file)
-        if not sig:
-            print("ERROR: Linux signature required (--linux-sig-file)", file=sys.stderr)
-            return 1
+        sig = read_sig(args.linux_sig_file) or ""
         platforms["linux-x86_64"] = {
             "signature": sig,
             "url": args.linux_url,

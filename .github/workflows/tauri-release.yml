@@ -81,9 +81,12 @@ jobs:
           - platform: macos-latest
             target: aarch64-apple-darwin
             tauri_target: darwin-aarch64
-          - platform: macos-13
-            target: x86_64-apple-darwin
-            tauri_target: darwin-x86_64
+          # macOS Intel (x86_64) 暂时移除:
+          # macos-13 runner 紧张导致长时间排队,Intel 用户可通过 Rosetta 运行 ARM 版本
+          # 证书和 runner 资源充足后可重新添加
+          # - platform: macos-13
+          #   target: x86_64-apple-darwin
+          #   tauri_target: darwin-x86_64
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             tauri_target: linux-x86_64
@@ -276,10 +279,10 @@ jobs:
           TAG: ${{ needs.prepare.outputs.tag }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          REPO="pangu-nebula/pangu-nebula"
+          REPO="AQWlala/Pangu-Nebula"
           BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 
-          # 查找各平台签名文件
+          # 查找各平台签名文件 (TAURI_SIGNING_KEY 未配置时无 .sig 文件,签名为可选)
           WIN_SIG=$(find all-artifacts -name "*.msi.sig" -o -name "*-setup.exe.sig" | head -1)
           MAC_ARM_SIG=$(find all-artifacts -path "*darwin-aarch64*" -name "*.dmg.sig" | head -1)
           MAC_X86_SIG=$(find all-artifacts -path "*darwin-x86_64*" -name "*.dmg.sig" | head -1)
@@ -297,20 +300,25 @@ jobs:
             --output latest.json
           )
 
-          if [ -n "$WIN_SIG" ] && [ -n "$WIN_FILE" ]; then
-            ARGS+=(--windows-url "${BASE_URL}/$(basename "$WIN_FILE")" --windows-sig-file "$WIN_SIG")
+          # 签名可选: TAURI_SIGNING_KEY 未配置时跳过签名,gen_latest_json.py 会用空字符串
+          if [ -n "$WIN_FILE" ]; then
+            ARGS+=(--windows-url "${BASE_URL}/$(basename "$WIN_FILE")")
+            [ -n "$WIN_SIG" ] && ARGS+=(--windows-sig-file "$WIN_SIG")
           fi
 
-          if [ -n "$MAC_ARM_SIG" ] && [ -n "$MAC_ARM_FILE" ]; then
-            ARGS+=(--macos-aarch64-url "${BASE_URL}/$(basename "$MAC_ARM_FILE")" --macos-aarch64-sig-file "$MAC_ARM_SIG")
+          if [ -n "$MAC_ARM_FILE" ]; then
+            ARGS+=(--macos-aarch64-url "${BASE_URL}/$(basename "$MAC_ARM_FILE")")
+            [ -n "$MAC_ARM_SIG" ] && ARGS+=(--macos-aarch64-sig-file "$MAC_ARM_SIG")
           fi
 
-          if [ -n "$MAC_X86_SIG" ] && [ -n "$MAC_X86_FILE" ]; then
-            ARGS+=(--macos-x86_64-url "${BASE_URL}/$(basename "$MAC_X86_FILE")" --macos-x86_64-sig-file "$MAC_X86_SIG")
+          if [ -n "$MAC_X86_FILE" ]; then
+            ARGS+=(--macos-x86_64-url "${BASE_URL}/$(basename "$MAC_X86_FILE")")
+            [ -n "$MAC_X86_SIG" ] && ARGS+=(--macos-x86_64-sig-file "$MAC_X86_SIG")
           fi
 
-          if [ -n "$LINUX_SIG" ] && [ -n "$LINUX_FILE" ]; then
-            ARGS+=(--linux-url "${BASE_URL}/$(basename "$LINUX_FILE")" --linux-sig-file "$LINUX_SIG")
+          if [ -n "$LINUX_FILE" ]; then
+            ARGS+=(--linux-url "${BASE_URL}/$(basename "$LINUX_FILE")")
+            [ -n "$LINUX_SIG" ] && ARGS+=(--linux-sig-file "$LINUX_SIG")
           fi
 
           echo "Running gen_latest_json.py with: ${ARGS[@]}"

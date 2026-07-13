@@ -17,7 +17,7 @@ import SkillMarketplace from "./components/SkillMarketplace"
 import WikiBrowser from "./components/WikiBrowser"
 import WikiReviewInbox from "./components/WikiReviewInbox"
 import Dashboard from "./components/Dashboard"
-import { apiGet, apiPost } from "./lib/api"
+import { apiGet, apiPost, getApiBase } from "./lib/api"
 
 export default function App() {
   // 当前页面 - 使用 useState 管理, 不使用 URL 路由 (PyWebView 环境)
@@ -282,9 +282,10 @@ function DiagnosticsPage() {
 
   useEffect(() => {
     const runDiagnostics = async () => {
-      // /health 端点返回 {status: "ok"} 非统一格式, 用 raw fetch
+      // /health 端点返回 {status: "ok"} 非统一格式, 用 raw fetch 直连
+      // P0-W3: 使用 getApiBase() 支持动态端口 (Tauri sidecar 模式)
       try {
-        const res = await fetch("http://127.0.0.1:7860/health")
+        const res = await fetch(`${getApiBase()}/health`)
         if (res.ok) {
           const data = await res.json()
           setHealthStatus(data.status === "ok" ? "ok" : "fail")

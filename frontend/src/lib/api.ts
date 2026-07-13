@@ -2,13 +2,19 @@
 // v2.1.0 Phase 0: 支持 Tauri sidecar 模式 (动态端口 + Bearer token)
 //
 // 双模式工作:
-// 1. PyWebView 模式 (v2.0.x): 固定 http://127.0.0.1:7860,无 token
-// 2. Tauri sidecar 模式 (v2.1.0+): 监听 sidecar-ready 事件获取动态 PORT/TOKEN
+// 1. PyWebView 模式 (v2.0.x): 固定 http://127.0.0.1:7860,无 token, fetch 直连
+// 2. Tauri sidecar 模式 (v2.1.0+):
+//    - CRUD 请求走 invoke('http_proxy') → Rust → reqwest → sidecar
+//    - apiStream (SSE) 保留 fetch 直连 (流式必须直连, 不走 invoke)
+//    - /health 等非统一格式端点保留 fetch 直连
 //
 // 前端启动时:
 // - 检测 window.__NEBULA_PORT__ (由 Tauri 主进程注入)
-// - 若存在,使用动态端口 + Bearer token
-// - 若不存在,回退到固定 7860 端口 (PyWebView 模式)
+// - 若存在, Tauri 模式: CRUD 走 invoke, 流式/健康检查走动态端口 fetch
+// - 若不存在, 回退到固定 7860 端口 (PyWebView 模式, 全 fetch)
+
+// 动态导入 Tauri invoke (避免 PyWebView 模式下加载失败)
+// 注意: invoke 在 request() 内部延迟导入, 仅 Tauri 模式下执行
 
 // 检测 Tauri 环境 (window.__TAURI__ 或 window.__TAURI_INTERNALS__)
 declare global {
@@ -25,16 +31,24 @@ export const IS_TAURI =
   typeof window !== "undefined" &&
   (window.__TAURI__ !== undefined || window.__TAURI_INTERNALS__ !== undefined)
 
-/** API 基础 URL: Tauri 模式动态端口,否则固定 7860 */
-function getApiBase(): string {
+/** API 基础 URL: Tauri 模式动态端口,否则固定 7860
+ *
+ * 用于 /health 等非统一格式端点的 fetch 直连 (apiStream + 健康检查)。
+ * CRUD 请求在 Tauri 模式下走 invoke, 不使用此函数。
+ */
+export function getApiBase(): string {
   if (IS_TAURI && window.__NEBULA_PORT__) {
     return `http://127.0.0.1:${window.__NEBULA_PORT__}`
   }
   return "http://127.0.0.1:7860"
 }
 
-/** Bearer token: Tauri 模式从 window.__NEBULA_TOKEN__ 读取,否则空 */
-function getAuthToken(): string {
+/** Bearer token: Tauri 模式从 window.__NEBULA_TOKEN__ 读取,否则空
+ *
+ * 用于 apiStream + /health 直连 fetch 的 Authorization header。
+ * CRUD 请求在 Tauri 模式下走 invoke (token 由 Rust 端附加), 不使用此函数。
+ */
+export function getAuthToken(): string {
   if (IS_TAURI && window.__NEBULA_TOKEN__) {
     return window.__NEBULA_TOKEN__
   }
@@ -51,8 +65,31 @@ interface ApiResponse<T> {
   error: string | null
 }
 
-/** 发送 HTTP 请求并解析统一响应格式 */
+/** Rust http_proxy command 返回结构 (与 ProxyResponse 对齐) */
+interface ProxyResponse {
+  ok: boolean
+  data: any | null
+  error: string | null
+}
+
+/** 发送 HTTP 请求并解析统一响应格式
+ *
+ * 双实现:
+ * - Tauri 模式: invoke('http_proxy', { method, path, body }) → Rust → reqwest → sidecar
+ * - 浏览器/PyWebView 模式: fetch 直连 (动态端口 + Bearer token 或固定 7860)
+ */
 async function request<T>(method: string, path: string, body?: any): Promise<T> {
+  if (IS_TAURI) {
+    // Tauri 模式: CRUD 走 invoke http_proxy command (Rust 转发)
+    const { invoke } = await import("@tauri-apps/api/core")
+    const result = await invoke<ProxyResponse>("http_proxy", { method, path, body })
+    if (!result.ok) {
+      throw new Error(result.error || "请求失败")
+    }
+    return result.data as T
+  }
+
+  // 浏览器/PyWebView 模式: fetch 直连
   const baseUrl = getApiBase()
   const url = `${baseUrl}${path}`
   const token = getAuthToken()
@@ -60,7 +97,6 @@ async function request<T>(method: string, path: string, body?: any): Promise<T> 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   }
-  // Tauri sidecar 模式下附加 Bearer token
   if (token) {
     headers["Authorization"] = `Bearer ${token}`
   }

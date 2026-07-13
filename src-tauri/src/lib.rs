@@ -1,12 +1,14 @@
 //! Pangu Nebula Tauri 2 主进程库 (v2.1.0 Phase 0)
 //!
 //! P0-W2: 集成 sidecar supervisor — spawn Python + 端口协商 + /health/ready 轮询。
-//! P0-W3 将添加 IPC 转发 (invoke → reqwest → Python)。
+//! P0-W3: IPC 适配层 — invoke('http_proxy') → reqwest → Python sidecar (CRUD 走代理)。
 
 use tracing_subscriber;
 
+mod ipc;
 mod sidecar;
 
+use ipc::http_proxy;
 use sidecar::{shutdown_sidecar, spawn_and_wait_ready, SidecarState};
 use tauri::{Emitter, Manager};
 
@@ -36,6 +38,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         // P0-W6 将添加: .plugin(tauri_plugin_updater::init())
         .manage(SidecarState::default())
+        .invoke_handler(tauri::generate_handler![http_proxy])
         .setup(|app| {
             let app_handle = app.handle().clone();
 

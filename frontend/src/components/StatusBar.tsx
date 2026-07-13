@@ -1,5 +1,6 @@
 // 底部状态栏 - Provider 状态 + 当前角色 + 同步状态 + 版本号
 import { useEffect, useState } from "preact/hooks"
+import { getApiBase } from "../lib/api"
 
 interface StatusBarProps {
   provider: string
@@ -12,11 +13,12 @@ export default function StatusBar({ provider, persona, syncStatus }: StatusBarPr
   const [connStatus, setConnStatus] = useState<"green" | "yellow" | "red">("yellow")
 
   useEffect(() => {
-    // 轮询后端 /health 检查连接状态
+    // 轮询后端 /health 检查连接状态 (直连, 非统一格式不走 invoke)
+    // P0-W3: 使用 getApiBase() 支持动态端口 (Tauri sidecar 模式)
     let active = true
     const check = async () => {
       try {
-        const res = await fetch("http://127.0.0.1:7860/health")
+        const res = await fetch(`${getApiBase()}/health`)
         if (!active) return
         setConnStatus(res.ok ? "green" : "red")
       } catch {

@@ -1,8 +1,13 @@
-﻿import sys
+﻿import os
+import signal
+import sys
+import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
@@ -59,7 +64,12 @@ def _parse_cors_origins(raw: str, debug: bool) -> list[str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Track startup time for /health/ready readiness probe
+    app.state.start_time = time.time()
+    app.state.db_initialized = False
     await init_db()
+    app.state.db_initialized = True
+    app.state.services_loaded = True
     yield
 
 
@@ -75,6 +85,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# v2.1.0 Phase 0 — Bearer token auth middleware for Tauri sidecar mode.
+# In pywebview mode (sidecar_token empty), this middleware is a no-op.
+# In tauri mode, all requests must carry "Authorization: Bearer <token>"
+# except for /health/ready (used by Tauri readiness probe) and /shutdown.
+@app.middleware("http")
+async def sidecar_token_auth(request: Request, call_next):
+    token = settings.sidecar_token
+    # No-op in pywebview mode (no token configured)
+    if not token:
+        return await call_next(request)
+    # Allow readiness + shutdown probes without token (Tauri polls /health/ready
+    # before frontend has a chance to inject the token).
+    unauthenticated_paths = {"/health/ready", "/health", "/shutdown"}
+    if request.url.path in unauthenticated_paths:
+        return await call_next(request)
+    # Verify Bearer token
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        provided = auth_header[7:]
+        if provided == token:
+            return await call_next(request)
+    # Reject all other requests without valid token
+    return JSONResponse(
+        status_code=401,
+        content={"ok": False, "data": None, "error": "Unauthorized: invalid or missing Bearer token"},
+    )
 
 # Static frontend assets
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
@@ -123,3 +161,43 @@ app.include_router(health_check_router)
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+# v2.1.0 Phase 0 — Sidecar readiness probe (polled by Tauri main process).
+# Returns DB initialization + services status + uptime. No Bearer token
+# required (whitelisted in sidecar_token_auth middleware) so Tauri can poll
+# before the frontend has injected the token.
+@app.get("/health/ready")
+async def health_ready(request: Request):
+    app_state = request.app.state
+    db_initialized = getattr(app_state, "db_initialized", False)
+    services_loaded = getattr(app_state, "services_loaded", False)
+    start_time = getattr(app_state, "start_time", None)
+    uptime_seconds = (time.time() - start_time) if start_time else 0.0
+    ready = db_initialized and services_loaded
+    return {
+        "status": "ready" if ready else "starting",
+        "db_initialized": db_initialized,
+        "services_loaded": services_loaded,
+        "uptime_seconds": round(uptime_seconds, 3),
+    }
+
+
+# v2.1.0 Phase 0 — Graceful shutdown endpoint (called by Tauri Supervisor
+# on window close / app quit). No Bearer token required (whitelisted in
+# sidecar_token_auth middleware) so Tauri can always reach it.
+#
+# Flow: respond 200 immediately → schedule SIGTERM delivery after a short
+# delay so uvicorn finishes streaming the response → uvicorn lifespan
+# shutdown runs (DB close, etc.) → process exits.
+@app.post("/shutdown")
+async def shutdown_sidecar(request: Request):
+    def _terminate():
+        # Give uvicorn ~100ms to flush the HTTP response, then signal self.
+        time.sleep(0.1)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    # Run the terminator in a background thread (not asyncio task) so the
+    # signal is delivered even if the event loop is busy draining requests.
+    threading.Thread(target=_terminate, daemon=True).start()
+    return {"ok": True, "data": {"shutting_down": True}, "error": None}

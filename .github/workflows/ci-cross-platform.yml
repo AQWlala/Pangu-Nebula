@@ -46,9 +46,10 @@ jobs:
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
-          # pywebview Linux 后端依赖 (仅用于导入测试,不实际启动 GUI)
+          # WebKitGTK 4.1 required by Tauri 2 (v2.1.0 Phase 0+).
+          # Also satisfies pywebview import tests (4.1 API compatible).
           sudo apt-get update || true
-          sudo apt-get install -y libgtk-3-0 libglib2.0-0 libwebkit2gtk-4.0-37 || true
+          sudo apt-get install -y libgtk-3-0 libglib2.0-0 libwebkit2gtk-4.1-1 || true
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-asyncio httpx
@@ -132,7 +133,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-0 libglib2.0-0 libwebkit2gtk-4.0-37
+          sudo apt-get install -y libgtk-3-0 libglib2.0-0 libwebkit2gtk-4.1-1
 
       - name: Install Python dependencies
         run: |

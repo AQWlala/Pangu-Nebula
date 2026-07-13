@@ -2,15 +2,25 @@
 """Pangu Nebula desktop application entry point.
 
 Launches uvicorn backend + PyWebView desktop window.
+
+Shell modes (controlled by NEBULA_SHELL env var, v2.1.0 Phase 0):
+- NEBULA_SHELL=pywebview (default): PyWebView 桌面窗口模式 (v2.0.x 原行为)
+- NEBULA_SHELL=tauri: Tauri 2 sidecar 模式 (v2.1.0 Phase 0 新增)
+  * 不开窗口, 仅启动 FastAPI 后端
+  * 动态端口 (OS 分配) + stdout 输出 PORT=xxxxx + TOKEN=yyyy
+  * 供 Tauri 主进程读取并通过 window.__NEBULA_PORT__/__NEBULA_TOKEN__ 注入前端
+
 Usage:
     python launch.py                    # Default (auto port + desktop window)
     python launch.py --port 8080        # Specify port
     python launch.py --host 0.0.0.0     # Specify listen address
     python launch.py --no-window        # Backend-only mode (no window, for debugging)
     python launch.py --version          # Show version
+    $env:NEBULA_SHELL="tauri"; python launch.py  # Tauri sidecar 模式
 """
 import argparse
 import os
+import secrets
 import socket
 import sys
 import threading
@@ -20,11 +30,19 @@ import uvicorn
 
 VERSION = "0.1.0"
 
+# Shell mode: "pywebview" (default) or "tauri" (Phase 0 sidecar)
+SHELL_MODE = os.environ.get("NEBULA_SHELL", "pywebview").lower()
+
 # When running as a frozen PyInstaller app with console=False (windowed
 # subsystem), stdout/stderr are not connected to any console.  Writing to
 # them would raise OSError and crash the process.  Redirect to devnull
 # early, before any print statement or library log output.
-if getattr(sys, "frozen", False):
+#
+# EXCEPTION: Tauri sidecar mode (NEBULA_SHELL=tauri) requires stdout to
+# communicate PORT= and TOKEN= to the Tauri parent process. In that mode
+# stdout must NOT be redirected. Tauri sidecar is always launched with
+# stdout piped, so writes are safe.
+if getattr(sys, "frozen", False) and SHELL_MODE != "tauri":
     try:
         sys.stdout.write("")
     except (OSError, IOError):
@@ -40,6 +58,58 @@ def find_available_port(start_port=7860):
                 return port
         port += 1
     raise RuntimeError("No available port found")
+
+
+def allocate_sidecar_port() -> int:
+    """Allocate an OS-assigned free port for Tauri sidecar mode.
+
+    Binds to ("127.0.0.1", 0) to let the OS pick a free port, then
+    immediately releases it so uvicorn can rebind. There is a tiny race
+    window between close() and uvicorn's bind(), but in practice the
+    same port is reused because the socket is in TIME_WAIT only after
+    a connection, not after a bare bind+close.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def emit_sidecar_handshake(port: int, token: str) -> None:
+    """Emit PORT= and TOKEN= lines to stdout for the Tauri parent process.
+
+    Format (one key per line, terminated with newline):
+        PORT=12345
+        TOKEN=<64 hex chars>
+        READY
+    The Tauri Rust parent reads stdout line-by-line and parses these.
+    After READY, Tauri starts polling /health/ready.
+    """
+    sys.stdout.write(f"PORT={port}\n")
+    sys.stdout.write(f"TOKEN={token}\n")
+    sys.stdout.write("READY\n")
+    sys.stdout.flush()
+
+
+def run_sidecar_only(host: str = "127.0.0.1", port: int | None = None) -> None:
+    """Tauri sidecar mode: start FastAPI backend only, no desktop window.
+
+    Phase 0 (v2.1.0) entry point invoked when NEBULA_SHELL=tauri.
+    1. Allocate dynamic port (OS-assigned) unless --port given
+    2. Generate random Bearer token for IPC auth
+    3. Emit PORT/TOKEN/READY to stdout
+    4. Export NEBULA_PORT/NEBULA_TOKEN to env (read by server/main.py)
+    5. Start uvicorn (blocking)
+    """
+    if port is None:
+        port = allocate_sidecar_port()
+    token = secrets.token_hex(32)
+    # Export to env so server.config.Settings picks them up via env_prefix=NEBULA_
+    os.environ["NEBULA_PORT"] = str(port)
+    os.environ["NEBULA_TOKEN"] = token
+    emit_sidecar_handshake(port, token)
+    # Start uvicorn with app object (no reload in sidecar mode)
+    from server.main import app
+    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 def create_window(port, server_shutdown_func):
@@ -128,6 +198,11 @@ def wait_for_server(host, port, timeout=10):
 
 def main():
     args = parse_args()
+
+    # Tauri sidecar mode: emit PORT/TOKEN to stdout, no window
+    if SHELL_MODE == "tauri":
+        run_sidecar_only(host=args.host, port=args.port)
+        return
 
     port = args.port if args.port else find_available_port()
     print(f"Pangu Nebula v{VERSION}")

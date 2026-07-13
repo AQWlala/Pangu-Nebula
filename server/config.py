@@ -1,6 +1,7 @@
 ﻿import os
 import sys
 from pathlib import Path
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -23,6 +24,17 @@ class Settings(BaseSettings):
     cors_origins: str = (
         "http://127.0.0.1:*,http://localhost:*,app://*,tauri://*"
     )
+
+    # v2.1.0 Phase 0 — Tauri sidecar feature flag
+    # "pywebview" (default, v2.0.x behavior) or "tauri" (v2.1.0 Phase 0+)
+    shell: str = "pywebview"
+    # Bearer token for IPC auth between Tauri main process and Python sidecar.
+    # Empty in pywebview mode (no auth); set by launch.py in tauri mode.
+    # Reads NEBULA_TOKEN (not NEBULA_SIDECAR_TOKEN) to match launch.py env vars.
+    sidecar_token: str = Field(default="", validation_alias="NEBULA_TOKEN")
+    # Port actually bound by sidecar (set by launch.py in tauri mode).
+    # Reads NEBULA_PORT. Defaults to 0 (use server_port at runtime).
+    sidecar_port: int = Field(default=0, validation_alias="NEBULA_PORT")
 
     model_config = {"env_prefix": "NEBULA_", "env_file": ".env"}
 

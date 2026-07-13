@@ -2,6 +2,7 @@
 import { useState, useEffect } from "preact/hooks"
 import { apiGet, apiPut, apiDelete } from "../lib/api"
 import type { ProviderInfo, Persona, Channel, SchedulerJob } from "../lib/types"
+import UpdateChecker from "./UpdateChecker"
 
 // 设置分类
 const CATEGORIES = [
@@ -718,6 +719,11 @@ export default function Settings() {
                   📦 开源仓库 →
                 </a>
               </div>
+            </div>
+
+            {/* P0-W6.2: 自动更新检查 */}
+            <div style={{ marginTop: "16px" }}>
+              <UpdateChecker />
             </div>
           </div>
         )

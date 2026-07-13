@@ -4,6 +4,7 @@
 //! P0-W3: IPC 适配层 — invoke('http_proxy') → reqwest → Python sidecar (CRUD 走代理)。
 //! P0-W4: 窗口/托盘 — 系统托盘 + 单实例锁 + 最小化到托盘 + sidecar 就绪后显示窗口。
 //! P0-W5: Sidecar Supervisor — 崩溃检测 + 指数退避重启 + 优雅关闭 + 降级通知。
+//! P0-W6: 自动更新 — tauri-plugin-updater + check_for_update/install_update command。
 
 use tracing_subscriber;
 
@@ -12,10 +13,12 @@ mod integrity;
 mod sidecar;
 mod supervisor;
 mod tray;
+mod updater;
 
 use ipc::http_proxy;
 use sidecar::{spawn_and_wait_ready, SidecarState};
 use supervisor::{start_supervisor, graceful_shutdown, SupervisorState};
+use updater::{check_for_update, install_update};
 use tauri::{Emitter, Manager};
 
 /// 初始化日志订阅 (tracing + tracing-subscriber)
@@ -52,10 +55,11 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_fs::init())
-        // P0-W6 将添加: .plugin(tauri_plugin_updater::init())
+        // P0-W6.1: 自动更新插件 (tauri-plugin-updater)
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SidecarState::default())
         .manage(SupervisorState::default())
-        .invoke_handler(tauri::generate_handler![http_proxy])
+        .invoke_handler(tauri::generate_handler![http_proxy, check_for_update, install_update])
         .setup(|app| {
             let app_handle = app.handle().clone();
 

@@ -1,0 +1,276 @@
+# Tauri Release - v2.1.* tag 触发,三平台构建 + 签名 + latest.json 上传
+# P0-W6.3 初版 — 依赖 P0-W6.4 的 build_sidecar.py 和 tauri.conf.json resources 配置
+name: Tauri Release
+
+on:
+  push:
+    tags:
+      - 'v2.1.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v2.1.0)'
+        required: true
+        default: 'v2.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  # ==================== 三平台并行构建 ====================
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            tauri_target: windows-x86_64
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            tauri_target: darwin-aarch64
+          - platform: macos-13
+            target: x86_64-apple-darwin
+            tauri_target: darwin-x86_64
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            tauri_target: linux-x86_64
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---------- 环境初始化 ----------
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      # ---------- Linux 系统依赖 (WebKitGTK 4.1 for Tauri 2) ----------
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-1 \
+            libgtk-3-0 \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      # ---------- Python 依赖 ----------
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # ---------- 前端构建 ----------
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Verify frontend dist
+        shell: bash
+        run: |
+          test -f frontend/dist/index.html || { echo "ERROR: frontend/dist/index.html not found"; exit 1; }
+          echo "✅ Frontend dist OK"
+
+      # ---------- Python sidecar 打包 (P0-W6.4) ----------
+      - name: Build Python sidecar
+        run: python scripts/build_sidecar.py
+
+      - name: Generate sidecar SHA-256 manifest (dev-mode, not bundled)
+        run: python scripts/gen_sidecar_hash.py --output sidecar.sha256 --root .
+
+      - name: Verify sidecar exists
+        shell: bash
+        run: |
+          if [ ! -d src-tauri/resources/pangu-sidecar ]; then
+            echo "ERROR: sidecar directory not found"
+            exit 1
+          fi
+          echo "✅ Sidecar packaged"
+
+      # ---------- Tauri 构建 + 签名 ----------
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+
+      # Windows 代码签名 (P0-W6.5)
+      # 证书获取后,在 GitHub Secrets 中配置:
+      #   WINDOWS_CERT_FILE (base64-encoded PFX)
+      #   WINDOWS_CERT_PASSWORD
+      # 当前 certificateThumbprint 为空 → 跳过代码签名 (仅 updater 签名)
+      - name: Decode Windows signing certificate
+        if: runner.os == 'Windows' && env.WINDOWS_CERT_FILE != ''
+        env:
+          WINDOWS_CERT_FILE: ${{ secrets.WINDOWS_CERT_FILE }}
+        shell: pwsh
+        run: |
+          [System.IO.File]::WriteAllBytes("cert.pfx", [System.Convert]::FromBase64String($env:WINDOWS_CERT_FILE))
+          Write-Host "Certificate decoded"
+
+      - name: Build Tauri app (with updater signing)
+        env:
+          TAURI_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_KEY }}
+          TAURI_SIGNING_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_KEY_PASSWORD }}
+          # Windows 代码签名 (证书获取后启用)
+          SIGNING_CERT_FILE: ${{ secrets.WINDOWS_CERT_FILE != '' && 'cert.pfx' || '' }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: npx tauri build --target ${{ matrix.target }}
+
+      # ---------- 收集构建产物 ----------
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          # Windows: MSI + NSIS
+          for f in src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi \
+                   src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi.sig \
+                   src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe \
+                   src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe.sig; do
+            [ -f "$f" ] && cp "$f" artifacts/ && echo "Collected: $(basename $f)"
+          done
+          # macOS: DMG
+          for f in src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg \
+                   src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg.sig; do
+            [ -f "$f" ] && cp "$f" artifacts/ && echo "Collected: $(basename $f)"
+          done
+          # Linux: AppImage
+          for f in src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage \
+                   src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.sig; do
+            [ -f "$f" ] && cp "$f" artifacts/ && echo "Collected: $(basename $f)"
+          done
+          ls -la artifacts/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-build-${{ matrix.tauri_target }}
+          path: artifacts/*
+          retention-days: 7
+
+  # ==================== 生成 latest.json + 发布 ====================
+  release:
+    name: Generate latest.json + Upload to Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+
+      - name: List downloaded artifacts
+        run: |
+          find all-artifacts -type f | sort
+          echo "---"
+          ls -laR all-artifacts/
+
+      - name: Generate latest.json
+        env:
+          TAG: ${{ github.ref_name || github.event.inputs.tag }}
+        run: |
+          VERSION="${TAG#v}"  # v2.1.0 → 2.1.0
+          REPO="pangu-nebula/pangu-nebula"
+          BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
+
+          # 查找各平台签名文件
+          WIN_SIG=$(find all-artifacts -name "*.msi.sig" -o -name "*-setup.exe.sig" | head -1)
+          MAC_ARM_SIG=$(find all-artifacts -path "*darwin-aarch64*" -name "*.dmg.sig" | head -1)
+          MAC_X86_SIG=$(find all-artifacts -path "*darwin-x86_64*" -name "*.dmg.sig" | head -1)
+          LINUX_SIG=$(find all-artifacts -name "*.AppImage.sig" | head -1)
+
+          # 查找各平台安装包文件名
+          WIN_FILE=$(find all-artifacts -name "*.msi" | head -1)
+          MAC_ARM_FILE=$(find all-artifacts -path "*darwin-aarch64*" -name "*.dmg" | head -1)
+          MAC_X86_FILE=$(find all-artifacts -path "*darwin-x86_64*" -name "*.dmg" | head -1)
+          LINUX_FILE=$(find all-artifacts -name "*.AppImage" | head -1)
+
+          ARGS=(
+            --version "$VERSION"
+            --notes "Pangu Nebula $TAG"
+            --output latest.json
+          )
+
+          if [ -n "$WIN_SIG" ] && [ -n "$WIN_FILE" ]; then
+            ARGS+=(--windows-url "${BASE_URL}/$(basename "$WIN_FILE")" --windows-sig-file "$WIN_SIG")
+          fi
+
+          if [ -n "$MAC_ARM_SIG" ] && [ -n "$MAC_ARM_FILE" ]; then
+            ARGS+=(--macos-aarch64-url "${BASE_URL}/$(basename "$MAC_ARM_FILE")" --macos-aarch64-sig-file "$MAC_ARM_SIG")
+          fi
+
+          if [ -n "$MAC_X86_SIG" ] && [ -n "$MAC_X86_FILE" ]; then
+            ARGS+=(--macos-x86_64-url "${BASE_URL}/$(basename "$MAC_X86_FILE")" --macos-x86_64-sig-file "$MAC_X86_SIG")
+          fi
+
+          if [ -n "$LINUX_SIG" ] && [ -n "$LINUX_FILE" ]; then
+            ARGS+=(--linux-url "${BASE_URL}/$(basename "$LINUX_FILE")" --linux-sig-file "$LINUX_SIG")
+          fi
+
+          echo "Running gen_latest_json.py with: ${ARGS[@]}"
+          python scripts/gen_latest_json.py "${ARGS[@]}"
+
+          echo "=== latest.json ==="
+          cat latest.json
+
+      - name: Upload all files to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || github.event.inputs.tag }}
+          name: Pangu Nebula ${{ github.ref_name || github.event.inputs.tag }}
+          body: |
+            ## Pangu Nebula ${{ github.ref_name || github.event.inputs.tag }}
+
+            ### 安装方式
+            - **Windows**: 下载 `.msi` 安装包
+            - **macOS (Apple Silicon)**: 下载 `aarch64.dmg`
+            - **macOS (Intel)**: 下载 `x86_64.dmg`
+            - **Linux**: 下载 `.AppImage`
+
+            ### 自动更新
+            已集成 Tauri Updater,安装后可在「设置 → 关于」中检查更新。
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          files: |
+            all-artifacts/**/*.msi
+            all-artifacts/**/*.msi.sig
+            all-artifacts/**/*.exe
+            all-artifacts/**/*.exe.sig
+            all-artifacts/**/*.dmg
+            all-artifacts/**/*.dmg.sig
+            all-artifacts/**/*.AppImage
+            all-artifacts/**/*.AppImage.sig
+            latest.json
+          fail_on_unmatched_files: true

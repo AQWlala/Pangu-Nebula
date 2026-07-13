@@ -22,3 +22,6 @@ rust/**/Cargo.lock
 src-tauri/target/
 # Tauri 2 编译时自动生成的 schema 文件 (tauri-build 自动重建)
 src-tauri/gen/
+# Sidecar 打包产物 (由 scripts/build_sidecar.py 生成,不入库)
+src-tauri/resources/pangu-sidecar/
+sidecar.sha256

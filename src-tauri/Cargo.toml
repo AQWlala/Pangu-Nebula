@@ -24,7 +24,7 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-single-instance = "2"
-# P0-W6 将启用: tauri-plugin-updater = "2"
+tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Sidecar IPC: HTTP 请求转发到 Python FastAPI

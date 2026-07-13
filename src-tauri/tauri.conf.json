@@ -39,11 +39,37 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [],
+    "resources": ["resources/pangu-sidecar/**"],
     "externalBin": [],
     "copyright": "© 2026 Pangu Nebula",
     "category": "Productivity",
     "shortDescription": "AI Agent Desktop Platform",
-    "longDescription": "Pangu Nebula — 双主控 + 蜂群 worker + persona 自进化的 AI Agent 桌面平台"
+    "longDescription": "Pangu Nebula — 双主控 + 蜂群 worker + persona 自进化的 AI Agent 桌面平台",
+    "windows": {
+      "wix": {
+        "language": ["zh-CN", "en-US"]
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true
+      },
+      "certificateThumbprint": "",
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/pangu-nebula/pangu-nebula/releases/latest/download/latest.json"
+      ],
+      "dialog": false,
+      "pubkey": "PLACEHOLDER_PUBKEY_REPLACE_WITH_REAL_ED25519_PUBLIC_KEY_FROM_P0_W0_2"
+    }
   }
 }

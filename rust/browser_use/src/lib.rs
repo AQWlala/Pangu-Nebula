@@ -1,8 +1,9 @@
 //! Browser Use Rust 模块 - 骨架入口
 //!
 //! 此模块为 Pangu Nebula v2.0.0 阶段5(T5.1)的 Rust 重写骨架。
-//! 实际功能在 Python 端由 `server/services/browser_use_rust.py` mock 提供,
-//! 待 Rust 编译链就绪后,通过 PyO3 暴露到 Python。
+//! v2.1.0 Phase 0: 改造为双目标 crate (cdylib + rlib)。
+//! - `python` feature 启用: 编译为 cdylib,通过 PyO3 暴露到 Python
+//! - 默认 (无 feature): 编译为 rlib,可供 Tauri 主进程链接
 //!
 //! 设计目标:
 //! - 用 CDP(Chrome DevTools Protocol)替代 Playwright Python,降低内存占用
@@ -11,10 +12,13 @@
 //!
 //! 当前状态: 仅骨架,函数体为 TODO 占位,返回 Ok(false)/空集合。
 
-use pyo3::prelude::*;
-
+// cdp 和 aria 子模块不依赖 PyO3,始终编译
 mod cdp;
 mod aria;
+
+// PyO3 绑定仅在 python feature 启用时编译
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
 
 /// CDP 连接入口 - 连接到 Chromium DevTools Protocol
 ///
@@ -22,6 +26,7 @@ mod aria;
 /// - `_url`: CDP websocket URL(例如 ws://127.0.0.1:9222/devtools/browser/...)
 ///
 /// 返回: true 表示连接成功,false 表示失败(骨架始终返回 false)
+#[cfg(feature = "python")]
 #[pyfunction]
 fn cdp_connect(_url: &str) -> PyResult<bool> {
     // TODO: 实现 CDP websocket 握手与协议初始化
@@ -35,6 +40,7 @@ fn cdp_connect(_url: &str) -> PyResult<bool> {
 /// - `_page_id`: 目标页面 ID(由 cdp_connect 返回)
 ///
 /// 返回: ARIA 元素描述列表(骨架返回空 Vec)
+#[cfg(feature = "python")]
 #[pyfunction]
 fn aria_listen(_page_id: &str) -> PyResult<Vec<String>> {
     // TODO: 调用 cdp::listen_aria 并将事件转换为字符串列表
@@ -42,18 +48,21 @@ fn aria_listen(_page_id: &str) -> PyResult<Vec<String>> {
 }
 
 /// 模块版本信息
+#[cfg(feature = "python")]
 #[pyfunction]
 fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
 /// 是否为骨架模式(未实现真实逻辑)
+#[cfg(feature = "python")]
 #[pyfunction]
 fn is_skeleton() -> bool {
     true
 }
 
-/// PyO3 模块入口
+/// PyO3 模块入口 (仅 python feature 启用时编译)
+#[cfg(feature = "python")]
 #[pymodule]
 fn browser_use(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cdp_connect, m)?)?;

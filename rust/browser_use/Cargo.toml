@@ -2,15 +2,23 @@
 name = "browser_use"
 version = "0.1.0"
 edition = "2021"
-description = "Pangu Nebula Browser Use Rust 模块 - 骨架(实际功能由 Python mock 提供)"
+description = "Pangu Nebula Browser Use Rust 模块 - 双目标 crate (Tauri rlib + Python cdylib)"
 
 [lib]
 name = "browser_use"
-crate-type = ["cdylib"]
+# v2.1.0 Phase 0: 双目标 crate
+# - cdylib: Python 可通过 PyO3 导入 (.so/.pyd/.dylib)
+# - rlib:   Tauri 主进程可作为 Rust 库链接
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# python feature 启用 PyO3 绑定;不启用时编译为纯 rlib (Tauri 可链接)
+python = ["dep:pyo3"]
 
 [dependencies]
-# PyO3: Python 互操作
-pyo3 = { version = "0.22", features = ["extension-module"] }
+# PyO3: Python 互操作 (optional, 仅 python feature 启用时编译)
+pyo3 = { version = "0.22", features = ["extension-module"], optional = true }
 # 以下依赖为未来实现预留,当前骨架不强制启用
 # chromiumoxide = "0.7"   # CDP 客户端
 # tokio = { version = "1", features = ["full"] }

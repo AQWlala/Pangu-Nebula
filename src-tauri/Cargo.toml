@@ -1,0 +1,45 @@
+[package]
+name = "pangu-nebula"
+version = "2.1.0"
+description = "Pangu Nebula - AI Agent Desktop Platform (Tauri 2 shell)"
+authors = ["Pangu Nebula Team"]
+edition = "2021"
+rust-version = "1.77"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "pangu_nebula_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-fs = "2"
+# P0-W6 将启用: tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Sidecar IPC: HTTP 请求转发到 Python FastAPI
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+sha2 = "0.10"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[features]
+# This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

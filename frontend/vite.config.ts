@@ -2,8 +2,11 @@ import { defineConfig } from 'vite'
 import preact from '@preact/preset-vite'
 
 // T4.10 前端 bundle 优化配置
+// v2.1.0 Phase 0: Tauri 2 兼容 — base 路径 + strictPort + 环境检测
 export default defineConfig({
   plugins: [preact()],
+  // Tauri 2 打包后从 tauri:// 协议加载,需相对路径;dev 模式用绝对路径
+  base: process.env.TAURI_ENV_PLATFORM ? './' : '/',
   build: {
     outDir: 'dist',
     // 代码分割: 将第三方依赖单独打包,提升缓存命中率
@@ -27,6 +30,8 @@ export default defineConfig({
     chunkSizeWarningLimit: 500,
   },
   server: {
+    // Tauri 2 devUrl 固定指向 localhost:5173,必须 strictPort 防止 Vite 换端口
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://localhost:7860',

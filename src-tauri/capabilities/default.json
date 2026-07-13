@@ -1,0 +1,28 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Pangu Nebula default capability set — deny-by-default, only explicitly listed permissions are granted.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-close",
+    "shell:allow-open",
+    "dialog:default",
+    "notification:default",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    "global-shortcut:default",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$APPDATA/nebula/**" },
+        { "path": "$APPCONFIG/nebula/**" }
+      ]
+    }
+  ]
+}

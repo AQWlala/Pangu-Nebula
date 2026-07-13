@@ -11,12 +11,12 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, AsyncIterator
 
 import httpx
 
 from ..base import Message, ProviderCapability
+from ..config_store import resolve_api_key, resolve_base_url
 from .base import ProtocolBase, StreamChunk
 
 
@@ -37,10 +37,11 @@ class AnthropicProtocol(ProtocolBase):
     supported_models: list[str] = []
 
     def __init__(self) -> None:
-        self.api_key = os.getenv(self.env_key, "")
-        self.base_url = os.getenv(
-            self.env_base_url, self.default_base_url
-        ).rstrip("/")
+        # env var 优先，config 文件作为 fallback
+        self.api_key = resolve_api_key(self.env_key, self.name)
+        self.base_url = resolve_base_url(
+            self.env_base_url, self.name, self.default_base_url
+        )
 
     # ---- 协议实现 ----
 

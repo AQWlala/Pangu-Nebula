@@ -1,4 +1,4 @@
-// 主应用框架 - Titlebar + Sidebar + 主内容区 + StatusBar + MascotAssistant
+﻿// 主应用框架 - Titlebar + Sidebar + 主内容区 + StatusBar + MascotAssistant
 import { useState, useEffect } from "preact/hooks"
 import Titlebar from "./components/Titlebar"
 import Sidebar from "./components/Sidebar"
@@ -203,7 +203,7 @@ export default function App() {
             justifyContent: "center",
           }}
         >
-          <OnboardingWizard onComplete={handleOnboardingComplete} />
+          <OnboardingWizard onComplete={handleOnboardingComplete} onSkip={handleOnboardingComplete} />
         </div>
       )}
 

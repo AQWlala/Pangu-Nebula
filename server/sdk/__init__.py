@@ -1,9 +1,9 @@
-"""Pangu Memory SDK — 可独立使用的记忆系统 SDK
+"""Pangu Memory SDK (merged into server.sdk) — 可独立使用的记忆系统 SDK
 
 6 层认知记忆 + 海绵/黑洞双引擎 + CRDT 跨设备同步
 
 基本用法:
-    from pangu_memory_sdk import MemoryStore, SpongeStrategy, BlackHoleEngine
+    from server.sdk import MemoryStore, SpongeStrategy, BlackHoleEngine
     
     store = MemoryStore()
     await store.init()

@@ -9,13 +9,9 @@ build/
 *.egg-info/
 .venv/
 .pytest_cache/
-# 参考项目目录 (不提交)
 nomifun-ref/
-# 忽略 spec 但保留项目自带的 pangu-nebula.spec
-*.spec
-!pangu-nebula.spec
-!pangu-nebula-mac.spec
-!pangu-nebula-linux.spec
+_readme_*.md
+pangu-nebula*.spec
 # Rust 构建产物
 rust/**/target/
 rust/**/Cargo.lock
@@ -25,3 +21,9 @@ src-tauri/gen/
 # Sidecar 打包产物 (由 scripts/build_sidecar.py 生成,不入库)
 src-tauri/resources/pangu-sidecar/
 sidecar.sha256
+# SDK 缓存
+server/sdk/__pycache__/
+
+# 密钥文件 (绝不提交)
+keys/updater_private.pem
+keys/updater_password.txt

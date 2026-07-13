@@ -1,6 +1,15 @@
 from fastapi import APIRouter, HTTPException
 
 from ..providers import get_provider, get_provider_info, list_providers
+from ..providers.config_store import set_provider_config, list_all_configs
+from pydantic import BaseModel
+
+
+class ProviderConfigureRequest(BaseModel):
+    provider: str
+    api_key: str | None = None
+    api_base: str | None = None
+    default_model: str | None = None
 
 router = APIRouter(prefix="/providers", tags=["providers"])
 
@@ -8,6 +17,24 @@ router = APIRouter(prefix="/providers", tags=["providers"])
 @router.get("", summary="列出 Provider", description="列出所有已注册的 LLM Provider 及其基本信息")
 async def get_providers():
     return {"ok": True, "data": list_providers(), "error": None}
+
+
+@router.post("/configure", summary="配置 Provider", description="持久化 Provider 的 API Key / Base URL / 默认模型到配置文件")
+async def configure_provider(req: ProviderConfigureRequest):
+    if not req.provider:
+        return {"ok": False, "data": None, "error": "provider is required"}
+    set_provider_config(
+        provider_name=req.provider,
+        api_key=req.api_key,
+        api_base=req.api_base,
+        default_model=req.default_model,
+    )
+    return {"ok": True, "data": {"provider": req.provider, "configured": True}, "error": None}
+
+
+@router.get("/configs", summary="列出已保存配置", description="列出所有已通过 /configure 保存的 Provider 配置(屏蔽密钥值)")
+async def get_configs():
+    return {"ok": True, "data": list_all_configs(), "error": None}
 
 
 @router.get("/{name}", summary="获取 Provider", description="根据名称获取单个 Provider 的详细信息(能力、模型列表等)")

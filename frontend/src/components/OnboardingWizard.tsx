@@ -15,7 +15,7 @@ const AVATAR_CHOICES = ['🧸', '🐰', '🦊', '🐱', '🐼', '🦉', '🌟', 
 
 // ===== 组件 =====
 
-export default function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
+export default function OnboardingWizard({ onComplete, onSkip }: { onComplete: () => void; onSkip: () => void }) {
   const [step, setStep] = useState(0)
   const [providers, setProviders] = useState<any[]>([])
   const [loadingProviders, setLoadingProviders] = useState(true)
@@ -23,7 +23,9 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
   // 表单数据
   const [provider, setProvider] = useState('')
   const [apiKey, setApiKey] = useState('')
-  const [personaName, setPersonaName] = useState('')
+  const [apiBase, setApiBase] = useState('')
+  const [modelName, setModelName] = useState('')
+    const [personaName, setPersonaName] = useState('')
   const [personaDesc, setPersonaDesc] = useState('')
   const [personaAvatar, setPersonaAvatar] = useState('🧸')
   const [personaSoul, setPersonaSoul] = useState('')
@@ -45,9 +47,14 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
       } catch {
         // 加载失败,提供默认选项
         setProviders([
-          { name: 'openai', available: false, supported_models: [] },
-          { name: 'anthropic', available: false, supported_models: [] },
-          { name: 'gemini', available: false, supported_models: [] },
+          { name: 'openai', label: 'OpenAI', icon: '🤖', available: false, supported_models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'] },
+          { name: 'anthropic', label: 'Anthropic', icon: '🧠', available: false, supported_models: ['claude-sonnet-4-20250514', 'claude-3-5-haiku-latest'] },
+          { name: 'gemini', label: 'Google Gemini', icon: '✨', available: false, supported_models: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
+          { name: 'deepseek', label: 'DeepSeek', icon: '🔍', available: false, supported_models: ['deepseek-chat', 'deepseek-reasoner'] },
+          { name: 'zhipu', label: '智谱 GLM', icon: '🇨🇳', available: false, supported_models: ['glm-4-plus', 'glm-4-flash'] },
+          { name: 'moonshot', label: '月之暗面', icon: '🌑', available: false, supported_models: ['moonshot-v1-8k', 'moonshot-v1-32k'] },
+          { name: 'qwen', label: '通义千问', icon: '☁️', available: false, supported_models: ['qwen-max', 'qwen-plus'] },
+          { name: 'custom', label: '自定义', icon: '🔌', available: true, supported_models: [] },
         ])
         setProvider('openai')
       } finally {
@@ -56,6 +63,32 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
     }
     loadProviders()
   }, [])
+
+  // 保存 API 密钥
+  const saveApiKey = async () => {
+    if (!apiKey.trim() || !provider) return
+    try {
+      await apiPost('/providers/configure', {
+        provider: provider,
+        api_key: apiKey.trim(),
+        api_base: apiBase.trim() || undefined,
+        default_model: modelName.trim() || undefined,
+      })
+    } catch {
+      // 配置保存暂不支持,请通过环境变量设置 API Key
+    }
+  }
+
+  // 跳过当前步骤
+  const skipCurrent = () => {
+    setError('')
+    if (step === 1) saveApiKey()
+    if (step < STEPS.length - 1) {
+      setStep(step + 1)
+    } else {
+      onComplete()
+    }
+  }
 
   // AI 辅助生成 SOUL
   const handleAiGenerate = async () => {
@@ -82,7 +115,7 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
   }
 
   // 创建角色并完成引导
-  const handleComplete = async () => {
+  const handleCreatePersona = async () => {
     if (!personaName.trim()) {
       setError('请输入角色名称')
       setStep(2)
@@ -111,11 +144,17 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
   }
 
   // 前进
-  const next = () => {
+  const next = async () => {
     setError('')
-    if (step === 2) {
-      // 步骤 3 需要创建角色
-      handleComplete()
+    if (step === 1) {
+      saveApiKey()
+      setStep(2)
+    } else if (step === 2) {
+      if (personaName.trim()) {
+        await handleCreatePersona()
+      } else {
+        setStep(3)
+      }
     } else if (step < STEPS.length - 1) {
       setStep(step + 1)
     }
@@ -133,8 +172,8 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
   const canProceed = (): boolean => {
     switch (step) {
       case 0: return true
-      case 1: return !!provider
-      case 2: return !!personaName.trim() && !creating
+      case 1: return true
+      case 2: return !creating
       case 3: return true
       default: return false
     }
@@ -368,6 +407,56 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
                   💡 密钥将安全保存在本地,不会上传到服务器
                 </p>
               </div>
+
+              {/* 自定义 API Base (仅 custom provider 时显示) */}
+              {provider === 'custom' && (
+                <div style={{ marginBottom: 'var(--spacing-md)' }}>
+                  <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>
+                    API Base URL
+                  </label>
+                  <input
+                    type="text"
+                    value={apiBase}
+                    onInput={(e) => setApiBase((e.target as HTMLInputElement).value)}
+                    placeholder="https://api.openai.com/v1"
+                    style={{
+                      width: '100%',
+                      padding: '10px var(--spacing-md)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      fontSize: 'var(--font-sm)',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* 模型名称输入 */}
+              <div style={{ marginBottom: 'var(--spacing-md)' }}>
+                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>
+                  默认模型 (可选)
+                </label>
+                <input
+                  type="text"
+                  value={modelName}
+                  onInput={(e) => setModelName((e.target as HTMLInputElement).value)}
+                  placeholder="输入模型名称,如 gpt-4o"
+                  style={{
+                    width: '100%',
+                    padding: '10px var(--spacing-md)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    fontSize: 'var(--font-sm)',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
             </div>
           )}
 
@@ -375,7 +464,7 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
           {step === 2 && (
             <div className="flex flex-col">
               <h2 style={{ fontSize: 'var(--font-xl)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 'var(--spacing-sm)' }}>
-                🎭 创建你的第一个角色
+                🎭 创建角色 (可选)
               </h2>
               <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-lg)' }}>
                 为你的 AI 助手赋予独特的灵魂和个性
@@ -527,7 +616,7 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
                 设置完成!
               </h1>
               <p style={{ fontSize: 'var(--font-base)', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-lg)', maxWidth: '380px' }}>
-                一切就绪,你的 AI 助手已经准备好为你服务了
+                {personaName ? '一切就绪,你的 AI 助手已经准备好为你服务了' : '一切就绪,你可以在设置中随时配置模型和创建角色'}
               </p>
 
               {/* 配置摘要 */}
@@ -576,46 +665,89 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
             background: 'var(--bg-primary)',
           }}
         >
-          {/* 后退按钮 */}
-          {step > 0 && step < 3 ? (
-            <button
-              onClick={back}
-              className="transition-all"
-              style={{
-                padding: '8px var(--spacing-lg)',
-                borderRadius: 'var(--radius-md)',
-                background: 'transparent',
-                color: 'var(--text-secondary)',
-                fontSize: 'var(--font-sm)',
-                border: '1px solid var(--border)',
-                cursor: 'pointer',
-              }}
-            >
-              ← 上一步
-            </button>
-          ) : (
-            <div />
-          )}
+          {/* 左侧: 后退 + 跳过全部 */}
+          <div className="flex gap-2">
+            {step > 0 && step < 3 ? (
+              <button
+                onClick={back}
+                className="transition-all"
+                style={{
+                  padding: '8px var(--spacing-md)',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'transparent',
+                  color: 'var(--text-secondary)',
+                  fontSize: 'var(--font-sm)',
+                  border: '1px solid var(--border)',
+                  cursor: 'pointer',
+                }}
+              >
+                ← 上一步
+              </button>
+            ) : (
+              <div />
+            )}
+            {step < 3 && (
+              <button
+                onClick={onSkip}
+                className="transition-all"
+                style={{
+                  padding: '8px var(--spacing-md)',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'transparent',
+                  color: 'var(--text-secondary)',
+                  fontSize: 'var(--font-xs)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                }}
+              >
+                跳过全部
+              </button>
+            )}
+          </div>
 
-          {/* 前进/完成按钮 */}
+          {/* 右侧: 跳过当前 + 前进/完成 */}
           {step < 3 ? (
-            <button
-              onClick={next}
-              disabled={!canProceed() || aiGenerating || creating}
-              className="transition-all"
-              style={{
-                padding: '8px var(--spacing-xl)',
-                borderRadius: 'var(--radius-md)',
-                background: canProceed() && !aiGenerating && !creating ? 'var(--accent)' : 'var(--bg-secondary)',
-                color: canProceed() && !aiGenerating && !creating ? '#fff' : 'var(--text-secondary)',
-                fontSize: 'var(--font-sm)',
-                fontWeight: 600,
-                border: 'none',
-                cursor: canProceed() && !aiGenerating && !creating ? 'pointer' : 'default',
-              }}
-            >
-              {creating ? '创建中...' : step === 2 ? '创建角色 →' : '下一步 →'}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={skipCurrent}
+                className="transition-all"
+                disabled={creating || aiGenerating}
+                style={{
+                  padding: '8px var(--spacing-md)',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'transparent',
+                  color: 'var(--text-secondary)',
+                  fontSize: 'var(--font-sm)',
+                  border: '1px solid var(--border)',
+                  cursor: creating || aiGenerating ? 'default' : 'pointer',
+                  opacity: creating || aiGenerating ? 0.5 : 1,
+                }}
+              >
+                跳过
+              </button>
+              <button
+                onClick={next}
+                disabled={!canProceed() || aiGenerating || creating}
+                className="transition-all"
+                style={{
+                  padding: '8px var(--spacing-xl)',
+                  borderRadius: 'var(--radius-md)',
+                  background: canProceed() && !aiGenerating && !creating ? 'var(--accent)' : 'var(--bg-secondary)',
+                  color: canProceed() && !aiGenerating && !creating ? '#fff' : 'var(--text-secondary)',
+                  fontSize: 'var(--font-sm)',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: canProceed() && !aiGenerating && !creating ? 'pointer' : 'default',
+                }}
+              >
+                {step === 2 && personaName.trim()
+                  ? creating
+                    ? '创建中...'
+                    : '创建角色 →'
+                  : '下一步 →'}
+              </button>
+            </div>
           ) : (
             <button
               onClick={onComplete}

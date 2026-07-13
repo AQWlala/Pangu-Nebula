@@ -3,15 +3,19 @@
 //! P0-W2: 集成 sidecar supervisor — spawn Python + 端口协商 + /health/ready 轮询。
 //! P0-W3: IPC 适配层 — invoke('http_proxy') → reqwest → Python sidecar (CRUD 走代理)。
 //! P0-W4: 窗口/托盘 — 系统托盘 + 单实例锁 + 最小化到托盘 + sidecar 就绪后显示窗口。
+//! P0-W5: Sidecar Supervisor — 崩溃检测 + 指数退避重启 + 优雅关闭 + 降级通知。
 
 use tracing_subscriber;
 
 mod ipc;
+mod integrity;
 mod sidecar;
+mod supervisor;
 mod tray;
 
 use ipc::http_proxy;
-use sidecar::{shutdown_sidecar, spawn_and_wait_ready, SidecarState};
+use sidecar::{spawn_and_wait_ready, SidecarState};
+use supervisor::{start_supervisor, graceful_shutdown, SupervisorState};
 use tauri::{Emitter, Manager};
 
 /// 初始化日志订阅 (tracing + tracing-subscriber)
@@ -30,7 +34,7 @@ fn init_tracing() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_tracing();
-    tracing::info!("Pangu Nebula Tauri shell starting (P0-W4 window/tray)");
+    tracing::info!("Pangu Nebula Tauri shell starting (P0-W5 supervisor)");
 
     tauri::Builder::default()
         // P0-W4.3: 单实例锁 — 必须第一个注册 (Tauri 2 要求)
@@ -50,6 +54,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         // P0-W6 将添加: .plugin(tauri_plugin_updater::init())
         .manage(SidecarState::default())
+        .manage(SupervisorState::default())
         .invoke_handler(tauri::generate_handler![http_proxy])
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -62,6 +67,15 @@ pub fn run() {
             // 在独立线程中 spawn sidecar (避免阻塞 setup 钩子导致窗口不显示)
             // setup 钩子必须快速返回,Tauri 才能创建窗口
             tauri::async_runtime::spawn(async move {
+                // P0-W5.1: 启动前完整性校验 (失败则拒绝启动 sidecar)
+                if !integrity::check_and_emit(&app_handle) {
+                    tracing::error!("Sidecar integrity check failed, refusing to start");
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                    }
+                    return;
+                }
+
                 match spawn_and_wait_ready(&app_handle) {
                     Ok(handshake) => {
                         tracing::info!(
@@ -69,6 +83,9 @@ pub fn run() {
                             handshake.port,
                             &handshake.token[..8]
                         );
+
+                        // P0-W5: sidecar 就绪后启动 supervisor (崩溃检测 + 指数退避重启)
+                        start_supervisor(app_handle.clone());
 
                         // P0-W4: sidecar 就绪后显示主窗口
                         // (tauri.conf.json 中 visible:false, 启动时隐藏)
@@ -102,10 +119,14 @@ pub fn run() {
                 tracing::info!("Window close prevented, hidden to tray");
             }
 
-            // 窗口真正销毁时 (托盘退出) 优雅关闭 sidecar
+            // P0-W5: 窗口真正销毁时 (托盘退出) 优雅关闭 sidecar
+            // graceful_shutdown 是 async,需 spawn 异步执行
             if let tauri::WindowEvent::Destroyed = event {
-                tracing::info!("Window destroyed, shutting down sidecar...");
-                shutdown_sidecar(window.app_handle());
+                tracing::info!("Window destroyed, gracefully shutting down sidecar...");
+                let app_handle = window.app_handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    graceful_shutdown(&app_handle).await;
+                });
             }
         })
         .run(tauri::generate_context!())

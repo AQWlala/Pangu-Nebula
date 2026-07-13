@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar"
 import StatusBar from "./components/StatusBar"
 import MascotAssistant from "./components/MascotAssistant"
 import Settings from "./components/Settings"
+import DegradedUI from "./components/DegradedUI"
 // 以下组件由其他子智能体创建,路径已约定:
 import ChatPanel from "./components/ChatPanel"
 import PersonaManager from "./components/PersonaManager"
@@ -205,6 +206,9 @@ export default function App() {
           <OnboardingWizard onComplete={handleOnboardingComplete} />
         </div>
       )}
+
+      {/* P0-W5.4: 降级 UI — sidecar 崩溃/完整性校验失败时显示 */}
+      <DegradedUI />
     </div>
   )
 }

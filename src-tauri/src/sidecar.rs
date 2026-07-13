@@ -193,6 +193,7 @@ fn poll_health_ready(handshake: &SidecarHandshake) -> Result<(), String> {
 /// 优雅关闭 sidecar (P0-W5 将扩展为 POST /shutdown)
 ///
 /// 当前实现: kill 子进程。P0-W5 将改为先 POST /shutdown 再 wait + fallback kill。
+#[allow(dead_code)]
 pub fn shutdown_sidecar(app: &AppHandle) {
     let state = app.state::<SidecarState>();
     let mut child_guard = state.child.lock().unwrap();

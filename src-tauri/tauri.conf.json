@@ -54,9 +54,6 @@
         "languages": ["SimpChinese", "English"],
         "displayLanguageSelector": true
       },
-      "certificateThumbprint": "",
-      "digestAlgorithm": "sha256",
-      "timestampUrl": "http://timestamp.digicert.com",
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       }

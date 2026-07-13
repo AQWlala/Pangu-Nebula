@@ -156,7 +156,7 @@ def test_15_tauri_conf_version_is_210():
     """tauri.conf.json 版本号为 2.1.0"""
     content = (SRC_TAURI / "tauri.conf.json").read_text(encoding="utf-8")
     config = json.loads(content)
-    assert config["version"] == "2.1.0", f"tauri.conf.json version: {config['version']}"
+    assert config["version"] == "2.1.1", f"tauri.conf.json version: {config['version']}"
 
 
 def test_16_cargo_toml_version_matches_tauri():

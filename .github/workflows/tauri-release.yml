@@ -1,5 +1,6 @@
 # Tauri Release - v2.1.* tag 触发,三平台构建 + 签名 + latest.json 上传
-# P0-W6.3 初版 — 依赖 P0-W6.4 的 build_sidecar.py 和 tauri.conf.json resources 配置
+# P0-W6.3 初版 + P0-W7.1/W7.2 重构: prepare → build → publish 三阶段
+# P0-W7.2: swatinem/rust-cache 缓存 ~/.cargo + src-tauri/target (减少构建时间 50-70%)
 name: Tauri Release
 
 on:
@@ -17,9 +18,59 @@ permissions:
   contents: write
 
 jobs:
-  # ==================== 三平台并行构建 ====================
+  # ==================== 1. Prepare: 创建 Draft Release ====================
+  prepare:
+    name: Prepare Draft Release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      is_prerelease: ${{ steps.meta.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract release metadata
+        id: meta
+        run: |
+          TAG="${{ github.ref_name || github.event.inputs.tag }}"
+          VERSION="${TAG#v}"  # v2.1.0 → 2.1.0
+          # 判断是否预发布 (alpha/beta/rc)
+          if echo "$TAG" | grep -qiE 'alpha|beta|rc'; then
+            IS_PRERELEASE="true"
+          else
+            IS_PRERELEASE="false"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "=== Release metadata ==="
+          echo "  tag: $TAG"
+          echo "  version: $VERSION"
+          echo "  prerelease: $IS_PRERELEASE"
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: Pangu Nebula ${{ steps.meta.outputs.tag }}
+          body: |
+            ## Pangu Nebula ${{ steps.meta.outputs.tag }}
+
+            ### 安装方式
+            - **Windows**: 下载 `.msi` 安装包
+            - **macOS (Apple Silicon)**: 下载 `aarch64.dmg`
+            - **macOS (Intel)**: 下载 `x86_64.dmg`
+            - **Linux**: 下载 `.AppImage`
+
+            ### 自动更新
+            已集成 Tauri Updater,安装后可在「设置 → 关于」中检查更新。
+          draft: true
+          prerelease: ${{ steps.meta.outputs.is_prerelease }}
+
+  # ==================== 2. Build: 三平台并行构建 ====================
   build:
-    name: Build ${{ matrix.target }}
+    name: Build ${{ matrix.tauri_target }}
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -60,10 +111,14 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # P0-W7.2: swatinem/rust-cache — 缓存 ~/.cargo + src-tauri/target
+      # 预计减少构建时间 50-70%
+      # key 基于 Cargo.lock 哈希,缓存命中时跳过依赖编译
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: "src-tauri -> target"
+          key: ${{ matrix.target }}  # 按平台分隔缓存
 
       # ---------- Linux 系统依赖 (WebKitGTK 4.1 for Tauri 2) ----------
       - name: Install Linux dependencies
@@ -72,7 +127,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-1 \
+            libwebkit2gtk-4.1-dev \
             libgtk-3-0 \
+            libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf
@@ -173,10 +230,27 @@ jobs:
           path: artifacts/*
           retention-days: 7
 
-  # ==================== 生成 latest.json + 发布 ====================
-  release:
-    name: Generate latest.json + Upload to Release
-    needs: build
+      # P0-W7.1: 直接上传到 draft release (并行上传,不等所有平台完成)
+      - name: Upload to draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          draft: true
+          files: |
+            artifacts/*.msi
+            artifacts/*.msi.sig
+            artifacts/*.exe
+            artifacts/*.exe.sig
+            artifacts/*.dmg
+            artifacts/*.dmg.sig
+            artifacts/*.AppImage
+            artifacts/*.AppImage.sig
+          fail_on_unmatched_files: false
+
+  # ==================== 3. Publish: latest.json + Draft → Published ====================
+  publish:
+    name: Generate latest.json + Publish Release
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -199,9 +273,9 @@ jobs:
 
       - name: Generate latest.json
         env:
-          TAG: ${{ github.ref_name || github.event.inputs.tag }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          VERSION="${TAG#v}"  # v2.1.0 → 2.1.0
           REPO="pangu-nebula/pangu-nebula"
           BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 
@@ -245,13 +319,14 @@ jobs:
           echo "=== latest.json ==="
           cat latest.json
 
-      - name: Upload all files to GitHub Release
+      # P0-W7.1: 上传 latest.json + 将 draft 转 published
+      - name: Publish release (draft → published)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name || github.event.inputs.tag }}
-          name: Pangu Nebula ${{ github.ref_name || github.event.inputs.tag }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Pangu Nebula ${{ needs.prepare.outputs.tag }}
           body: |
-            ## Pangu Nebula ${{ github.ref_name || github.event.inputs.tag }}
+            ## Pangu Nebula ${{ needs.prepare.outputs.tag }}
 
             ### 安装方式
             - **Windows**: 下载 `.msi` 安装包
@@ -262,15 +337,7 @@ jobs:
             ### 自动更新
             已集成 Tauri Updater,安装后可在「设置 → 关于」中检查更新。
           draft: false
-          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          prerelease: ${{ needs.prepare.outputs.is_prerelease }}
           files: |
-            all-artifacts/**/*.msi
-            all-artifacts/**/*.msi.sig
-            all-artifacts/**/*.exe
-            all-artifacts/**/*.exe.sig
-            all-artifacts/**/*.dmg
-            all-artifacts/**/*.dmg.sig
-            all-artifacts/**/*.AppImage
-            all-artifacts/**/*.AppImage.sig
             latest.json
           fail_on_unmatched_files: true

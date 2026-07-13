@@ -28,7 +28,7 @@ import time
 
 import uvicorn
 
-VERSION = "0.1.0"
+VERSION = "2.1.0"
 
 # Shell mode: "pywebview" (default) or "tauri" (Phase 0 sidecar)
 SHELL_MODE = os.environ.get("NEBULA_SHELL", "pywebview").lower()

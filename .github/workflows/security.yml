@@ -1,4 +1,5 @@
 # 依赖安全扫描 - 定期检查 requirements.txt 和 package.json 的已知漏洞
+# P0-W7.3: 扩展 cargo-audit + cargo-deny (Rust 依赖扫描)
 name: Security Scan
 
 on:
@@ -8,6 +9,8 @@ on:
       - 'requirements.txt'
       - 'frontend/package.json'
       - 'frontend/package-lock.json'
+      - 'src-tauri/Cargo.toml'
+      - 'src-tauri/Cargo.lock'
       - '.github/workflows/security.yml'
   schedule:
     # 每周一北京时间 09:00 (UTC 周一 01:00) 定期扫描
@@ -67,6 +70,65 @@ jobs:
           }
           echo "✅ Node 依赖扫描完成,无高级别漏洞"
 
+  # ---------- Rust 依赖扫描: cargo-audit (P0-W7.3) ----------
+  # 检查 RustSec Advisory Database 中的已知漏洞
+  cargo-audit:
+    name: Rust dependencies (cargo-audit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        run: |
+          echo "🔍 扫描 Rust 依赖 (cargo-audit)..."
+          # --deny warnings: 有警告时失败 (包含已知漏洞)
+          cargo audit --deny warnings
+          echo "✅ Rust 依赖扫描完成,无已知漏洞"
+
+  # ---------- Rust 依赖扫描: cargo-deny (P0-W7.3) ----------
+  # 检查许可证合规 + 漏洞 + 重复依赖
+  cargo-deny:
+    name: Rust licenses + bans (cargo-deny)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Run cargo deny (licenses + bans + advisories)
+        run: |
+          echo "🔍 检查 Rust 许可证 + 禁用依赖 + 漏洞 (cargo-deny)..."
+          # 如果没有 deny.toml, 使用默认配置
+          if [ ! -f deny.toml ]; then
+            echo "deny.toml not found, using default config"
+            # 创建最小 deny.toml (允许常见开源许可证)
+            printf '[licenses]\nallow = [\n  "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause",\n  "ISC", "Zlib", "Unicode-DFS-2016", "Unicode-3.0",\n  "CC0-1.0", "MPL-2.0",\n]\n' > deny.toml
+          fi
+          # 检查 licenses + bans + advisories (跳过 sources 检查)
+          cargo deny check licenses advisories bans
+          echo "✅ Rust 许可证 + 禁用依赖检查通过"
+
   # ---------- 代码安全扫描 (CodeQL) ----------
   codeql:
     name: CodeQL Analysis
@@ -94,3 +156,4 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: /language:${{ matrix.language }}
+

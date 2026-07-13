@@ -27,7 +27,8 @@ tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Sidecar IPC: HTTP 请求转发到 Python FastAPI
-reqwest = { version = "0.12", features = ["json"] }
+# blocking feature 用于 sidecar.rs 中 /health/ready 同步轮询 (setup 钩子)
+reqwest = { version = "0.12", features = ["json", "blocking"] }
 tokio = { version = "1", features = ["full"] }
 sha2 = "0.10"
 tracing = "0.1"

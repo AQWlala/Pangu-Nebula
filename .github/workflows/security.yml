@@ -119,12 +119,12 @@ jobs:
       - name: Run cargo deny (licenses + bans + advisories)
         run: |
           echo "🔍 检查 Rust 许可证 + 禁用依赖 + 漏洞 (cargo-deny)..."
-          # 如果没有 deny.toml, 使用默认配置
+          # 使用项目中的 deny.toml (持久化配置,含 BSL-1.0 等许可证)
           if [ ! -f deny.toml ]; then
-            echo "deny.toml not found, using default config"
-            # 创建最小 deny.toml (允许常见开源许可证)
-            printf '[licenses]\nallow = [\n  "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause",\n  "ISC", "Zlib", "Unicode-DFS-2016", "Unicode-3.0",\n  "CC0-1.0", "MPL-2.0",\n]\n' > deny.toml
+            echo "❌ ERROR: deny.toml not found! Please commit deny.toml to src-tauri/"
+            exit 1
           fi
+          echo "Using deny.toml from project"
           # 检查 licenses + bans + advisories (跳过 sources 检查)
           cargo deny check licenses advisories bans
           echo "✅ Rust 许可证 + 禁用依赖检查通过"

@@ -1,0 +1,35 @@
+# cargo-deny 配置 — Rust 依赖许可证 + 禁用 + 漏洞检查
+# P0-W7.3: 用于 security.yml cargo-deny job
+# 注意: 此文件为项目持久化配置,CI 中不再动态生成
+
+[licenses]
+# 允许的开源许可证
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "MPL-2.0",
+    # BSL-1.0 (Boost Software License) — clipboard-win / error-code 使用
+    # OSI approved, FSF Free/Libre, 兼容开源
+    "BSL-1.0",
+]
+# 置信度阈值 (licenses.confidence-threshold)
+confidence-threshold = 0.8
+
+[bans]
+# 允许重复依赖 (某些 crate 有多版本是正常的)
+multiple-versions = "warn"
+# 允许 wildcard 依赖
+wildcards = "allow"
+
+[advisories]
+# 忽略的漏洞 ID (如有已知但无法立即修复的漏洞)
+ignore = []
+# 漏洞数据库 URL
+db-urls = ["https://github.com/rustsec/advisory-db"]

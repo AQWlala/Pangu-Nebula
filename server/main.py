@@ -36,6 +36,11 @@ from .api.dag import router as dag_router
 from .api.wiki_review import router as wiki_review_router
 from .api.acp import router as acp_router
 from .api.terminal import router as terminal_router
+from .api.idmm import router as idmm_router
+from .api.rag import router as rag_router
+from .api.acp_adapters import router as acp_adapters_router
+from .api.skill_market import router as skill_market_router
+from .api.update import router as update_router
 from .api.health import router as health_check_router
 from .tools import builtin_tools  # noqa: F401
 
@@ -107,6 +112,11 @@ app.include_router(dag_router)
 app.include_router(wiki_review_router)
 app.include_router(acp_router)
 app.include_router(terminal_router)
+app.include_router(idmm_router)
+app.include_router(rag_router)
+app.include_router(acp_adapters_router)
+app.include_router(skill_market_router)
+app.include_router(update_router)
 app.include_router(health_check_router)
 
 

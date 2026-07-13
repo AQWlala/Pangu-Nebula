@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from pangu_memory_sdk import (
+from server.sdk import (
     CRDTSyncManager,
     CompressionStrategy,
     Memory,
@@ -23,13 +23,13 @@ from pangu_memory_sdk import (
     MemoryStore,
     SpongeStrategy,
 )
-from pangu_memory_sdk.blackhole import (
+from server.sdk.blackhole import (
     KeywordCompression,
     SemanticCompression,
     SummaryCompression,
 )
-from pangu_memory_sdk.crdt import LWWRegister, ORSet
-from pangu_memory_sdk.sponge import (
+from server.sdk.crdt import LWWRegister, ORSet
+from server.sdk.sponge import (
     AggressiveSpongeStrategy,
     ConservativeSpongeStrategy,
     DefaultSpongeStrategy,

@@ -593,10 +593,14 @@ class TestRollbackCapability:
             assert len(workflow_files) > 0, "未找到任何 workflow 文件"
 
     def test_maint_v20x_branch(self):
-        """B6: maint/v2.0.x 分支存在。"""
-        # 通过 git 检查分支
-        result = subprocess.run(
-            ["git", "branch", "-a", "--list", "*v2.0*"],
+        """B6: maint/v2.0.x 分支存在(远程)。
+
+        使用 git ls-remote 检查远程分支,兼容 CI 环境
+        (actions/checkout 默认 fetch-depth=1 只 fetch 当前分支)。
+        """
+        # 优先检查本地分支(快速路径)
+        local = subprocess.run(
+            ["git", "branch", "--list", "*v2.0*"],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -604,9 +608,23 @@ class TestRollbackCapability:
             encoding="utf-8",
             errors="replace",
         )
-        # 本地或远程应存在 maint/v2.0.x 分支
+        if "v2.0" in local.stdout:
+            return
+        # 本地未找到,检查远程(CI 环境只有远程分支)
+        result = subprocess.run(
+            ["git", "ls-remote", "--heads", "origin", "*v2.0*"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            encoding="utf-8",
+            errors="replace",
+        )
         assert "v2.0" in result.stdout, (
-            f"未找到 maint/v2.0.x 分支\nstdout: {result.stdout}"
+            f"未找到 maint/v2.0.x 分支(本地+远程)\n"
+            f"local stdout: {local.stdout}\n"
+            f"remote stdout: {result.stdout}\n"
+            f"remote stderr: {result.stderr}"
         )
 
 

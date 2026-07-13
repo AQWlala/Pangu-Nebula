@@ -1,0 +1,12 @@
+# cargo-audit 配置 (P0-W7.3 Security Scan)
+# 文档: https://github.com/rustsec/cargo-audit/blob/master/audit.toml.example
+
+[advisories]
+# 忽略的 advisory ID 列表 (需附注释说明原因 + 跟进计划)
+ignore = [
+    # quick-xml 0.39.4 — wayland-scanner 0.31.10 的编译时依赖 (build script)
+    # 漏洞仅影响运行时 XML 解析,wayland-scanner 在编译期使用,运行时不暴露
+    # 跟进: 等待 wayland-scanner 升级到使用 quick-xml >=0.41.0 的版本
+    "RUSTSEC-2026-0194",  # quick-xml: Quadratic run time (high 7.5)
+    "RUSTSEC-2026-0195",  # quick-xml: Unbounded namespace-declaration DoS (high 7.5)
+]

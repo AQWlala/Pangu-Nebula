@@ -327,7 +327,7 @@ class TestCompressionStrategy:
                 id=f"m{i}",
                 content=f"memory content {i} about python",
                 metadata=__import__(
-                    "pangu_memory_sdk.types", fromlist=["MemoryMetadata"]
+                    "server.sdk.types", fromlist=["MemoryMetadata"]
                 ).MemoryMetadata(
                     layer=MemoryLayer.L1_EPISODIC,
                     tags=[f"tag{i % 2}"],

@@ -390,22 +390,18 @@ class TestArchitectureCompliance:
 
     def test_dual_process_model(self):
         """A1: 双进程模型 — Tauri 主进程 + Python sidecar。"""
-        # Tauri 主进程入口
         assert (SRC_TAURI_DIR / "src" / "lib.rs").exists()
-        # Python sidecar 启动器
         assert (PROJECT_ROOT / "launch.py").exists()
-        # launch.py 中应包含 NEBULA_SHELL 分支
         launch_content = (PROJECT_ROOT / "launch.py").read_text(encoding="utf-8")
-        assert "NEBULA_SHELL" in launch_content, "launch.py 缺少 NEBULA_SHELL feature flag"
-        assert "tauri" in launch_content.lower(), "launch.py 缺少 tauri sidecar 模式"
+        assert "run_sidecar" in launch_content, "launch.py 缺少 sidecar 模式"
+        assert "NEBULA_PORT" in launch_content, "launch.py 缺少 NEBULA_PORT 注入"
+        assert "NEBULA_TOKEN" in launch_content, "launch.py 缺少 NEBULA_TOKEN 注入"
 
     def test_feature_flag_implemented(self):
-        """A6: Feature flag (NEBULA_SHELL) 实现。"""
+        """A6: 模式切换 — --no-window flag 实现。"""
         launch_content = (PROJECT_ROOT / "launch.py").read_text(encoding="utf-8")
-        assert 'os.environ' in launch_content or 'getenv' in launch_content, (
-            "launch.py 未使用环境变量"
-        )
-        assert "NEBULA_SHELL" in launch_content
+        assert "--no-window" in launch_content, "launch.py 缺少 --no-window 模式切换"
+        assert "run_sidecar" in launch_content, "launch.py 缺少 Tauri sidecar 模式"
 
     def test_preact_frontend_preserved(self):
         """A7: Preact 前端保留(未替换)。"""
@@ -573,11 +569,10 @@ class TestRollbackCapability:
     """回退能力验证关键项。"""
 
     def test_feature_flag_pywebview_mode(self):
-        """B1: Feature flag — NEBULA_SHELL=pywebview 可启动原模式。"""
+        """B1: 回退模式 — --no-window 独立服务器模式可用。"""
         launch_content = (PROJECT_ROOT / "launch.py").read_text(encoding="utf-8")
-        assert "pywebview" in launch_content.lower(), (
-            "launch.py 未保留 pywebview 模式分支"
-        )
+        assert "--no-window" in launch_content, "launch.py 缺少独立服务器模式"
+        assert "start_server" in launch_content, "launch.py 缺少 start_server 函数"
 
     def test_launch_py_preserved(self):
         """B2: launch.py 保留(原 PyWebView 入口未删除)。"""

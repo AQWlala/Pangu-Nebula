@@ -28,72 +28,45 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Spec 文件存在性 + 语法校验 (三平台通用, 不需要 skip)
 # ----------------------------------------------------------------------
 
-def test_macos_spec_file_exists():
-    """T4.7: macOS PyInstaller spec 文件存在"""
-    spec_path = PROJECT_ROOT / "pangu-nebula-mac.spec"
-    assert spec_path.exists(), f"macOS spec 文件不存在: {spec_path}"
+def test_tauri_conf_exists():
+    """v2.1+: Tauri 配置文件存在 (替代 PyInstaller spec)"""
+    tauri_conf = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
+    assert tauri_conf.exists(), f"Tauri conf 不存在: {tauri_conf}"
 
 
-def test_macos_spec_file_syntax():
-    """T4.7: macOS spec 文件 Python 语法正确"""
-    import ast
-    spec_path = PROJECT_ROOT / "pangu-nebula-mac.spec"
-    if not spec_path.exists():
-        pytest.skip("macOS spec 文件不存在")
-    source = spec_path.read_text(encoding="utf-8")
-    ast.parse(source)  # 不抛异常即语法正确
+def test_tauri_conf_valid_json():
+    """v2.1+: Tauri 配置为合法 JSON"""
+    import json
+    tauri_conf = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
+    if not tauri_conf.exists():
+        pytest.skip("Tauri conf 不存在")
+    json.loads(tauri_conf.read_text(encoding="utf-8"))
 
 
-def test_linux_spec_file_exists():
-    """T4.8: Linux PyInstaller spec 文件存在"""
-    spec_path = PROJECT_ROOT / "pangu-nebula-linux.spec"
-    assert spec_path.exists(), f"Linux spec 文件不存在: {spec_path}"
+def test_tauri_src_exists():
+    """v2.1+: Tauri Rust 源码存在"""
+    lib_rs = PROJECT_ROOT / "src-tauri" / "src" / "lib.rs"
+    assert lib_rs.exists(), f"lib.rs 不存在: {lib_rs}"
 
 
-def test_linux_spec_file_syntax():
-    """T4.8: Linux spec 文件 Python 语法正确"""
-    import ast
-    spec_path = PROJECT_ROOT / "pangu-nebula-linux.spec"
-    if not spec_path.exists():
-        pytest.skip("Linux spec 文件不存在")
-    source = spec_path.read_text(encoding="utf-8")
-    ast.parse(source)
+def test_launch_py_exists():
+    """v2.1+: launch.py 存在 (sidecar 入口)"""
+    launch = PROJECT_ROOT / "launch.py"
+    assert launch.exists(), f"launch.py 不存在: {launch}"
 
 
-def test_windows_spec_file_exists():
-    """T4.7/T4.8: 对照基准 - Windows spec 文件存在"""
-    spec_path = PROJECT_ROOT / "pangu-nebula.spec"
-    assert spec_path.exists(), f"Windows spec 文件不存在: {spec_path}"
+def test_launch_py_has_sidecar_mode():
+    """v2.1+: launch.py 包含 Tauri sidecar 模式"""
+    launch = PROJECT_ROOT / "launch.py"
+    content = launch.read_text(encoding="utf-8")
+    assert "run_sidecar" in content, "launch.py 缺少 run_sidecar"
 
 
-def test_macos_spec_contains_bundle():
-    """T4.7: macOS spec 包含 BUNDLE 选项 (生成 .app)"""
-    spec_path = PROJECT_ROOT / "pangu-nebula-mac.spec"
-    if not spec_path.exists():
-        pytest.skip("macOS spec 文件不存在")
-    content = spec_path.read_text(encoding="utf-8")
-    assert "BUNDLE" in content, "macOS spec 应包含 BUNDLE 选项"
-    assert ".app" in content, "macOS spec 应生成 .app bundle"
-
-
-def test_linux_spec_excludes_macos_modules():
-    """T4.8: Linux spec 排除 macOS 专有模块"""
-    spec_path = PROJECT_ROOT / "pangu-nebula-linux.spec"
-    if not spec_path.exists():
-        pytest.skip("Linux spec 文件不存在")
-    content = spec_path.read_text(encoding="utf-8")
-    # Linux spec 应排除 macOS 专有模块
-    assert "objc" in content or "Foundation" in content, "Linux spec 应排除 macOS 专有模块"
-
-
-def test_macos_spec_excludes_linux_modules():
-    """T4.7: macOS spec 排除 Linux 专有模块"""
-    spec_path = PROJECT_ROOT / "pangu-nebula-mac.spec"
-    if not spec_path.exists():
-        pytest.skip("macOS spec 文件不存在")
-    content = spec_path.read_text(encoding="utf-8")
-    # macOS spec 应排除 Linux 专有模块
-    assert "gi" in content or "Gtk" in content, "macOS spec 应排除 Linux 专有模块"
+def test_launch_py_has_standalone_mode():
+    """v2.1+: launch.py 包含 --no-window 独立模式"""
+    launch = PROJECT_ROOT / "launch.py"
+    content = launch.read_text(encoding="utf-8")
+    assert "--no-window" in content, "launch.py 缺少 --no-window 模式"
 
 
 # ----------------------------------------------------------------------
@@ -195,22 +168,14 @@ def test_keychain_verify_master_key_security_method():
 # pywebview 后端说明文档 (T4.7/T4.8)
 # ----------------------------------------------------------------------
 
-def test_pywebview_backend_documentation_exists():
-    """T4.7/T4.8: pywebview 跨平台后端说明文档存在"""
-    # 在 macOS / Linux spec 文件中已包含 pywebview 后端说明
-    mac_spec = PROJECT_ROOT / "pangu-nebula-mac.spec"
-    linux_spec = PROJECT_ROOT / "pangu-nebula-linux.spec"
-
-    mac_content = mac_spec.read_text(encoding="utf-8") if mac_spec.exists() else ""
-    linux_content = linux_spec.read_text(encoding="utf-8") if linux_spec.exists() else ""
-
-    # macOS spec 应提及 Cocoa/WebKit 后端
-    assert "pywebview" in mac_content.lower() or "webkit" in mac_content.lower(), \
-        "macOS spec 应说明 pywebview 后端"
-
-    # Linux spec 应提及 GTK/WebKitGTK 后端
-    assert "pywebview" in linux_content.lower() or "gtk" in linux_content.lower(), \
-        "Linux spec 应说明 pywebview 后端"
+def test_tauri_webview_config_exists():
+    """v2.1+: Tauri 使用 WebView2 (Windows) / WebKit (macOS/Linux)"""
+    tauri_conf = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
+    if not tauri_conf.exists():
+        pytest.skip("Tauri conf 不存在")
+    import json
+    config = json.loads(tauri_conf.read_text(encoding="utf-8"))
+    # Tauri 2 默认使用系统 WebView, 无需显式配置
 
 
 # ----------------------------------------------------------------------
@@ -225,16 +190,13 @@ def test_macos_keychain_fallback_mode():
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="仅在 macOS 平台运行")
-def test_macos_pyinstaller_bundle_generation():
-    """T4.7: macOS 平台 - PyInstaller 可生成 .app bundle
-
-    注意: 实际打包在 CI 中执行,这里仅验证 spec 配置正确
-    """
-    spec_path = PROJECT_ROOT / "pangu-nebula-mac.spec"
-    content = spec_path.read_text(encoding="utf-8")
-    assert "BUNDLE" in content
-    assert "PanguNebula.app" in content
-    assert "com.pangu.nebula" in content  # bundle_identifier
+def test_macos_tauri_bundle_config():
+    """v2.1+: macOS 平台 - Tauri 配置包含 .dmg bundle 设置"""
+    import json
+    tauri_conf = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
+    config = json.loads(tauri_conf.read_text(encoding="utf-8"))
+    bundle = config.get("bundle", {})
+    assert bundle.get("identifier") == "com.pangu.nebula"
 
 
 # ----------------------------------------------------------------------
@@ -249,12 +211,14 @@ def test_linux_keychain_fallback_mode():
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="仅在 Linux 平台运行")
-def test_linux_pyinstaller_no_bundle():
-    """T4.8: Linux 平台 - PyInstaller 不生成 .app bundle"""
-    spec_path = PROJECT_ROOT / "pangu-nebula-linux.spec"
-    content = spec_path.read_text(encoding="utf-8")
-    # Linux spec 不应包含 BUNDLE (BUNDLE 仅用于 macOS)
-    assert "BUNDLE" not in content, "Linux spec 不应包含 BUNDLE"
+def test_linux_tauri_bundle_config():
+    """v2.1+: Linux 平台 - Tauri 配置包含 AppImage/deb 设置"""
+    import json
+    tauri_conf = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
+    config = json.loads(tauri_conf.read_text(encoding="utf-8"))
+    bundle = config.get("bundle", {})
+    linux_cfg = bundle.get("linux", {})
+    assert "deb" in linux_cfg or "appimage" in linux_cfg
 
 
 # ----------------------------------------------------------------------

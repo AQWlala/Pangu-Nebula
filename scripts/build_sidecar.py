@@ -70,7 +70,7 @@ def build_sidecar() -> int:
         "--name=pangu-nebula-sidecar",
         "--onedir",
         "--console",  # sidecar 需要 stdout (PORT=/TOKEN= 握手)
-        f"--distpath={SIDECAR_OUTPUT_DIR.parent}",  # 输出到 src-tauri/resources/
+        f"--distpath={SIDECAR_OUTPUT_DIR}",  # 输出到 src-tauri/resources/pangu-sidecar/
         f"--workpath={WORK_DIR}",
         f"--specpath={SPEC_DIR}",
         "--noconfirm",
@@ -136,7 +136,8 @@ def build_sidecar() -> int:
             return e.code if isinstance(e.code, int) else 1
 
     # 验证产物
-    sidecar_exe = SIDECAR_OUTPUT_DIR / "pangu-nebula-sidecar"
+    # PyInstaller --onedir 在 --distpath 下创建以 --name 命名的子目录
+    sidecar_exe = SIDECAR_OUTPUT_DIR / "pangu-nebula-sidecar" / "pangu-nebula-sidecar"
     if sys.platform == "win32":
         sidecar_exe = sidecar_exe.with_suffix(".exe")
     elif sys.platform == "darwin":
@@ -152,8 +153,9 @@ def build_sidecar() -> int:
     print(f"   Directory: {SIDECAR_OUTPUT_DIR}")
 
     # 列出 sidecar 目录内容
-    print(f"\n   Contents of {SIDECAR_OUTPUT_DIR.name}/:")
-    for item in sorted(SIDECAR_OUTPUT_DIR.iterdir()):
+    sidecar_subdir = SIDECAR_OUTPUT_DIR / "pangu-nebula-sidecar"
+    print(f"\n   Contents of {sidecar_subdir.name}/:")
+    for item in sorted(sidecar_subdir.iterdir()):
         if item.is_file():
             sz = item.stat().st_size / (1024 * 1024)
             print(f"     {item.name} ({sz:.1f} MB)")

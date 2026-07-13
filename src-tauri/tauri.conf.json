@@ -39,7 +39,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["resources/pangu-sidecar/**"],
+    "resources": ["resources/pangu-sidecar/**/*"],
     "externalBin": [],
     "copyright": "© 2026 Pangu Nebula",
     "category": "Productivity",

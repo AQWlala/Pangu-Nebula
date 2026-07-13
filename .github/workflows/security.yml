@@ -95,16 +95,21 @@ jobs:
       - name: Run cargo audit
         run: |
           echo "🔍 扫描 Rust 依赖 (cargo-audit)..."
-          # 使用项目 audit.toml 忽略已知且已评估的传递依赖漏洞
           # 不使用 --deny warnings: unmaintained/unsound 等警告不阻断 CI
           # (GTK3 bindings 等 Tauri 2 传递依赖无法直接升级)
           # vulnerabilities 仍然阻断 (cargo audit 默认行为)
-          if [ ! -f audit.toml ]; then
-            echo "⚠️  audit.toml not found, using default config"
-          else
-            echo "Using audit.toml from project"
-          fi
-          cargo audit
+          #
+          # 忽略的漏洞 (传递依赖,已评估风险可接受):
+          #   RUSTSEC-2026-0194 / RUSTSEC-2026-0195 — quick-xml 0.39.4
+          #   quick-xml 是 wayland-scanner 0.31.10 的编译时依赖 (build script),
+          #   漏洞仅影响运行时 XML 解析,wayland-scanner 在编译期使用,运行时不暴露
+          #   跟进: 等待 wayland-scanner 升级到使用 quick-xml >=0.41.0 的版本
+          #
+          # 注: cargo-audit 0.22 不读取 audit.toml 的 [advisories].ignore 字段,
+          #     必须通过 --ignore 命令行参数传递 (audit.toml 仅作文档记录)
+          cargo audit \
+            --ignore RUSTSEC-2026-0194 \
+            --ignore RUSTSEC-2026-0195
           echo "✅ Rust 依赖扫描完成,无未忽略的已知漏洞"
 
   # ---------- Rust 依赖扫描: cargo-deny (P0-W7.3) ----------

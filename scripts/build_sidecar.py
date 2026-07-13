@@ -23,6 +23,14 @@ import shutil
 import sys
 from pathlib import Path
 
+# 强制 stdout/stderr 使用 UTF-8 编码
+# Windows CI 默认 cp1252 无法输出 emoji (✅/❌等),导致 UnicodeEncodeError
+# Python 3.7+ 支持 sys.stdout.reconfigure()
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # 项目根目录
 BASE_DIR = Path(__file__).resolve().parent.parent
 

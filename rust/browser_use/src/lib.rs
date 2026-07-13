@@ -55,7 +55,7 @@ fn is_skeleton() -> bool {
 
 /// PyO3 模块入口
 #[pymodule]
-fn browser_use(_py: Python, m: &PyModule) -> PyResult<()> {
+fn browser_use(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cdp_connect, m)?)?;
     m.add_function(wrap_pyfunction!(aria_listen, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;

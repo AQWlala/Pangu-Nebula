@@ -100,6 +100,6 @@ pub fn list_available_languages() -> Vec<String> {
 }
 
 /// 在 OCR 结果中查找包含指定文本的项(骨架返回空 Vec)
-pub fn find_text(items: &[OcrItem], pattern: &str) -> Vec<&OcrItem> {
+pub fn find_text<'a>(items: &'a [OcrItem], pattern: &str) -> Vec<&'a OcrItem> {
     items.iter().filter(|item| item.text.contains(pattern)).collect()
 }

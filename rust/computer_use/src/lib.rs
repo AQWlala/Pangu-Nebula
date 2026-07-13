@@ -34,7 +34,7 @@ fn get_a11y_tree() -> PyResult<String> {
 /// - `_a11y_json`: 无障碍树 JSON(可选)
 ///
 /// 返回: 标注后的图像 base64(骨架返回空字符串)
-#[pyfunction]
+#[pyfunction(signature = (_screenshot_b64, _a11y_json=None))]
 fn generate_som_overlay(_screenshot_b64: &str, _a11y_json: Option<&str>) -> PyResult<String> {
     // TODO: 调用 som::overlay,在截图上绘制编号框
     Ok(String::new())
@@ -47,7 +47,7 @@ fn generate_som_overlay(_screenshot_b64: &str, _a11y_json: Option<&str>) -> PyRe
 /// - `_lang`: 语言代码(如 chi_sim、eng)
 ///
 /// 返回: 识别到的文本列表 JSON(骨架返回 "[]")
-#[pyfunction]
+#[pyfunction(signature = (_image_b64, _lang=None))]
 fn ocr_recognize(_image_b64: &str, _lang: Option<&str>) -> PyResult<String> {
     // TODO: 调用 ocr::recognize,返回 [{text, bbox, confidence}]
     Ok("[]".to_string())
@@ -67,7 +67,7 @@ fn is_skeleton() -> bool {
 
 /// PyO3 模块入口
 #[pymodule]
-fn computer_use(_py: Python, m: &PyModule) -> PyResult<()> {
+fn computer_use(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_a11y_tree, m)?)?;
     m.add_function(wrap_pyfunction!(generate_som_overlay, m)?)?;
     m.add_function(wrap_pyfunction!(ocr_recognize, m)?)?;

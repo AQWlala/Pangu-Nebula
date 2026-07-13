@@ -29,7 +29,18 @@ multiple-versions = "warn"
 wildcards = "allow"
 
 [advisories]
-# 忽略的漏洞 ID (如有已知但无法立即修复的漏洞)
-ignore = []
+# unmaintained 检查范围:
+#   "all" = 检查所有依赖 (默认,但 Tauri 2 GTK3/unic-* 传递依赖会报错)
+#   "workspace" = 只检查 workspace 直接依赖
+#   "none" = 不检查 unmaintained
+# Tauri 2 的 GTK3 bindings + unic-* 系列均为传递依赖,无法直接升级
+unmaintained = "workspace"
+# 忽略的漏洞 ID (传递依赖漏洞,已评估风险可接受)
+ignore = [
+    # quick-xml 0.39.4 — wayland-scanner 0.31.10 编译时依赖,运行时不暴露
+    # 跟进: 等待 wayland-scanner 升级到 quick-xml >=0.41.0
+    "RUSTSEC-2026-0194",  # quick-xml: Quadratic run time (high 7.5)
+    "RUSTSEC-2026-0195",  # quick-xml: Unbounded namespace-declaration DoS (high 7.5)
+]
 # 漏洞数据库 URL
 db-urls = ["https://github.com/rustsec/advisory-db"]

@@ -137,9 +137,9 @@ class TestVersionCheck:
 
         assert result["current_version"] == CURRENT_VERSION
         assert result["update_available"] is True
-        assert result["latest_version"] == "1.0.1"
+        assert result["latest_version"] == "99.0.0"
         assert "manifest" in result
-        assert result["manifest"]["version"] == "1.0.1"
+        assert result["manifest"]["version"] == "99.0.0"
 
 
 # ----------------------------------------------------------------------
@@ -378,7 +378,7 @@ class TestUpdateAPI:
         data = response.json()
         assert data["ok"] is True
         assert data["data"]["current_version"] == CURRENT_VERSION
-        assert data["data"]["latest_version"] == "1.0.1"
+        assert data["data"]["latest_version"] == "99.0.0"
         assert data["data"]["update_available"] is True
 
     def test_update_download_endpoint(self, update_client):

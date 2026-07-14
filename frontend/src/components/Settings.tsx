@@ -125,11 +125,16 @@ export default function Settings() {
             </div>
             <div className="flex-1 overflow-y-auto" style={{ padding: 'var(--spacing-lg)' }}>
               <div style={{ marginBottom: 'var(--spacing-md)' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>Provider</label>
-                <select value={providerForm.provider} onChange={(e) => setProviderForm(prev => ({ ...prev, provider: (e.target as HTMLSelectElement).value }))} style={{ ...inputStyle, width: '100%' }}>
-                  <option value="">选择 Provider...</option>
-                  {providers.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-                </select>
+                <input
+                  list="provider-list"
+                  value={providerForm.provider}
+                  onInput={(e) => setProviderForm(prev => ({ ...prev, provider: (e.target as HTMLInputElement).value }))}
+                  placeholder="Type or select Provider..."
+                  style={{ ...inputStyle, width: '100%' }}
+                />
+                <datalist id="provider-list">
+                  {providers.map(p => <option key={p.name} value={p.name} />)}
+                </datalist>
               </div>
               <div style={{ marginBottom: 'var(--spacing-md)' }}>
                 <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>API Key</label>
@@ -501,44 +506,6 @@ case "mcp":
             </div>
           </div>
         )
-      {/* Provider 添加表单弹窗 */}
-      {showProviderForm && (
-        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowProviderForm(false)}>
-          <div className="flex flex-col" style={{ width: '90%', maxWidth: '480px', maxHeight: '90vh', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between shrink-0" style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
-              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加 Provider</h3>
-              <button onClick={() => setShowProviderForm(false)} style={{ border: 'none', background: 'transparent', fontSize: '20px', cursor: 'pointer', color: 'var(--text-secondary)' }}>x</button>
-            </div>
-            <div className="flex-1 overflow-y-auto" style={{ padding: 'var(--spacing-lg)' }}>
-              <div style={{ marginBottom: 'var(--spacing-md)' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>Provider</label>
-                <select value={providerForm.provider} onChange={(e) => setProviderForm(prev => ({ ...prev, provider: (e.target as HTMLSelectElement).value }))} style={{ ...inputStyle, width: '100%' }}>
-                  <option value="">选择 Provider...</option>
-                  {providers.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-                </select>
-              </div>
-              <div style={{ marginBottom: 'var(--spacing-md)' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>API Key</label>
-                <input type="password" value={providerForm.api_key} onInput={(e) => setProviderForm(prev => ({ ...prev, api_key: (e.target as HTMLInputElement).value }))} placeholder="sk-..." style={{ ...inputStyle, width: '100%' }} />
-              </div>
-              <div style={{ marginBottom: 'var(--spacing-md)' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>API Base URL (可选)</label>
-                <input type="text" value={providerForm.api_base} onInput={(e) => setProviderForm(prev => ({ ...prev, api_base: (e.target as HTMLInputElement).value }))} placeholder="https://api.deepseek.com" style={{ ...inputStyle, width: '100%' }} />
-              </div>
-              <div style={{ marginBottom: 'var(--spacing-md)' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>默认模型 (可选)</label>
-                <input type="text" value={providerForm.model} onInput={(e) => setProviderForm(prev => ({ ...prev, model: (e.target as HTMLInputElement).value }))} placeholder="deepseek-chat" style={{ ...inputStyle, width: '100%' }} />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 shrink-0" style={{ padding: 'var(--spacing-md) var(--spacing-lg)', borderTop: '1px solid var(--border)', background: 'var(--bg-primary)' }}>
-              <button onClick={() => setShowProviderForm(false)} style={{ padding: '8px var(--spacing-lg)', borderRadius: 'var(--radius-md)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 'var(--font-sm)', border: '1px solid var(--border)', cursor: 'pointer' }}>取消</button>
-              <button onClick={saveProvider} disabled={savingProvider} style={{ padding: '8px var(--spacing-lg)', borderRadius: 'var(--radius-md)', background: 'var(--accent)', color: '#fff', fontSize: 'var(--font-sm)', fontWeight: 600, border: 'none', cursor: 'pointer' }}>{savingProvider ? '保存中...' : '保存'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-
 
       case "persona":
         return (

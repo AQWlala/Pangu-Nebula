@@ -28,6 +28,7 @@ CARGO_TOML = PROJECT_ROOT / "src-tauri" / "Cargo.toml"
 PYPROJECT_TOML = PROJECT_ROOT / "pyproject.toml"
 FRONTEND_PACKAGE = PROJECT_ROOT / "frontend" / "package.json"
 LAUNCH_PY = PROJECT_ROOT / "launch.py"
+UPDATE_SERVICE = PROJECT_ROOT / "server" / "services" / "update_service.py"
 
 
 def read_tauri_version() -> str:
@@ -147,6 +148,30 @@ def sync_launch_py(version: str, check_only: bool = False) -> tuple[bool, str]:
     return True, f"launch.py: {current} → {version}"
 
 
+def sync_update_service(version: str, check_only: bool = False) -> tuple[bool, str]:
+    content = UPDATE_SERVICE.read_text(encoding="utf-8")
+    pattern = r'(CURRENT_VERSION\s*=\s*)"[^"]+"'
+    match = re.search(pattern, content)
+    if not match:
+        return False, "CURRENT_VERSION not found in update_service.py"
+
+    current = match.group(0).split('"')[-2]
+    if current == version:
+        return True, f"update_service.py: already {version}"
+
+    if check_only:
+        return False, f"update_service.py: {current} != {version}"
+
+    new_content = re.sub(
+        pattern,
+        lambda m: f'{m.group(1)}"{version}"',
+        content,
+        count=1,
+    )
+    UPDATE_SERVICE.write_text(new_content, encoding="utf-8")
+    return True, f"update_service.py: {current} -> {version}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Sync version across project files (tauri.conf.json as source of truth)"
@@ -185,6 +210,7 @@ def main() -> int:
         sync_pyproject_toml(version, check_only=args.check),
         sync_frontend_package(version, check_only=args.check),
         sync_launch_py(version, check_only=args.check),
+        sync_update_service(version, check_only=args.check),
     ]
 
     all_ok = True

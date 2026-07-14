@@ -1,4 +1,4 @@
-﻿// 双栏设置面板 - macOS 风格, 左栏分类列表 + 右栏表单
+// 双栏设置面板 - macOS 风格, 左栏分类列表 + 右栏表单
 import { useState, useEffect } from "preact/hooks"
 import { apiGet, apiPost, apiPut, apiDelete } from "../lib/api"
 import type { ProviderInfo, Persona, Channel, SchedulerJob } from "../lib/types"
@@ -115,114 +115,10 @@ export default function Settings() {
         case "provider":
           setProviders(await apiGet<ProviderInfo[]>("/providers"))
           break
-      {/* Provider 添加表单弹窗 */}
-      {showProviderForm && (
-        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowProviderForm(false)}>
-          <div className="flex flex-col" style={{ width: '90%', maxWidth: '480px', maxHeight: '90vh', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between shrink-0" style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
-              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加 Provider</h3>
-              <button onClick={() => setShowProviderForm(false)} style={{ border: 'none', background: 'transparent', fontSize: '20px', cursor: 'pointer', color: 'var(--text-secondary)' }}>x</button>
-            </div>
-            <div className="flex-1 overflow-y-auto" style={{ padding: 'var(--spacing-lg)' }}>
-              <div style={{ marginBottom: 'var(--spacing-md)' }}>
-                <input
-                  list="provider-list"
-                  value={providerForm.provider}
-                  onInput={(e) => setProviderForm(prev => ({ ...prev, provider: (e.target as HTMLInputElement).value }))}
-                  placeholder="Type or select Provider..."
-                  style={{ ...inputStyle, width: '100%' }}
-                />
-                <datalist id="provider-list">
-                  {providers.map(p => <option key={p.name} value={p.name} />)}
-                </datalist>
-              </div>
-              <div style={{ marginBottom: 'var(--spacing-md)' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>API Key</label>
-                <input type="password" value={providerForm.api_key} onInput={(e) => setProviderForm(prev => ({ ...prev, api_key: (e.target as HTMLInputElement).value }))} placeholder="sk-..." style={{ ...inputStyle, width: '100%' }} />
-              </div>
-              <div style={{ marginBottom: 'var(--spacing-md)' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>API Base URL (可选)</label>
-                <input type="text" value={providerForm.api_base} onInput={(e) => setProviderForm(prev => ({ ...prev, api_base: (e.target as HTMLInputElement).value }))} placeholder="https://api.deepseek.com" style={{ ...inputStyle, width: '100%' }} />
-              </div>
-              <div style={{ marginBottom: 'var(--spacing-md)' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>默认模型 (可选)</label>
-                <input type="text" value={providerForm.model} onInput={(e) => setProviderForm(prev => ({ ...prev, model: (e.target as HTMLInputElement).value }))} placeholder="deepseek-chat" style={{ ...inputStyle, width: '100%' }} />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 shrink-0" style={{ padding: 'var(--spacing-md) var(--spacing-lg)', borderTop: '1px solid var(--border)', background: 'var(--bg-primary)' }}>
-              <button onClick={() => setShowProviderForm(false)} style={{ padding: '8px var(--spacing-lg)', borderRadius: 'var(--radius-md)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 'var(--font-sm)', border: '1px solid var(--border)', cursor: 'pointer' }}>取消</button>
-              <button onClick={saveProvider} disabled={savingProvider} style={{ padding: '8px var(--spacing-lg)', borderRadius: 'var(--radius-md)', background: 'var(--accent)', color: '#fff', fontSize: 'var(--font-sm)', fontWeight: 600, border: 'none', cursor: 'pointer' }}>{savingProvider ? '保存中...' : '保存'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-
-        
-      {/* 渠道添加弹窗 */}
-      {showChannelForm && (
-        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowChannelForm(false)}>
-          <div className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
-              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加渠道</h3>
-            </div>
-            <div style={{ padding: 'var(--spacing-lg)' }}>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>渠道类型</label>
-                <select value={channelForm.channel_type} onChange={(e) => setChannelForm(prev => ({ ...prev, channel_type: (e.target as HTMLSelectElement).value }))} style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-                  {['discord','telegram','feishu','wechat','wecom','dingtalk'].map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>名称</label>
-                <input value={channelForm.name} onInput={(e) => setChannelForm(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))} placeholder="我的渠道" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-              </div>
-            </div>
-            <div style={{ padding: 'var(--spacing-md) var(--spacing-lg)', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button onClick={() => setShowChannelForm(false)} style={btnCancelStyle}>取消</button>
-              <button onClick={saveChannel} disabled={savingChannel} style={btnSaveStyle}>{savingChannel ? '保存中...' : '保存'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-case "persona":
+        case "persona":
           setPersonas(await apiGet<Persona[]>("/persona"))
           break
-        
-      {/* 设备配对弹窗 */}
-      {showPairingForm && (
-        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowPairingForm(false)}>
-          <div className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
-              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 配对新设备</h3>
-            </div>
-            <div style={{ padding: 'var(--spacing-lg)' }}>
-              {pairingResult ? (
-                <div style={{ textAlign: 'center', padding: '20px' }}>
-                  <div style={{ fontSize: '48px', marginBottom: '12px' }}>✅</div>
-                  <div style={{ fontSize: 'var(--font-lg)', fontWeight: 700, marginBottom: '8px' }}>配对码</div>
-                  <div style={{ fontSize: '24px', fontFamily: 'monospace', padding: '12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', marginBottom: '12px' }}>{pairingResult}</div>
-                  <button onClick={() => { setShowPairingForm(false); setPairingResult('') }} style={btnSaveStyle}>关闭</button>
-                </div>
-              ) : (
-                <>
-                  <div style={{ marginBottom: '12px' }}>
-                    <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>设备名称</label>
-                    <input value={pairingForm.device_name} onInput={(e) => setPairingForm(prev => ({ ...prev, device_name: (e.target as HTMLInputElement).value }))} placeholder="我的手机" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                    <button onClick={() => setShowPairingForm(false)} style={btnCancelStyle}>取消</button>
-                    <button onClick={startPairing} disabled={pairingLoading} style={btnSaveStyle}>{pairingLoading ? '配对中...' : '生成配对码'}</button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-case "channel":
+        case "channel":
           setChannels(await apiGet<Channel[]>("/channel/list"))
           break
         case "scheduler":
@@ -231,32 +127,6 @@ case "channel":
         case "sync":
           setSyncDevices(await apiGet<any[]>("/sync/devices"))
           break
-        
-      {/* 调度任务添加弹窗 */}
-      {showJobForm && (
-        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowJobForm(false)}>
-          <div className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
-              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加任务</h3>
-            </div>
-            <div style={{ padding: 'var(--spacing-lg)' }}>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>任务名称</label>
-                <input value={jobForm.name} onInput={(e) => setJobForm(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))} placeholder="每日清理" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-              </div>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Cron 表达式</label>
-                <input value={jobForm.cron_expr} onInput={(e) => setJobForm(prev => ({ ...prev, cron_expr: (e.target as HTMLInputElement).value }))} placeholder="0 * * * *" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-              </div>
-            </div>
-            <div style={{ padding: 'var(--spacing-md) var(--spacing-lg)', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button onClick={() => setShowJobForm(false)} style={btnCancelStyle}>取消</button>
-              <button onClick={saveJob} disabled={savingJob} style={btnSaveStyle}>{savingJob ? '保存中...' : '保存'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
 case "mcp":
           setMcpServers(await apiGet<any[]>("/mcp/servers"))
           setMcpTools(await apiGet<any[]>("/mcp/tools"))
@@ -928,38 +798,6 @@ case "mcp":
           </div>
         )
 
-      
-      {/* MCP 服务器添加弹窗 */}
-      {showMcpServerForm && (
-        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowMcpServerForm(false)}>
-          <div className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
-              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加 MCP 服务器</h3>
-            </div>
-            <div style={{ padding: 'var(--spacing-lg)' }}>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>服务器名称</label>
-                <input value={mcpServerForm.name} onInput={(e) => setMcpServerForm(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))} placeholder="my-server" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-              </div>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>传输方式</label>
-                <select value={mcpServerForm.transport} onChange={(e) => setMcpServerForm(prev => ({ ...prev, transport: (e.target as HTMLSelectElement).value }))} style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-                  <option value="stdio">stdio</option><option value="sse">sse</option>
-                </select>
-              </div>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>命令/URL</label>
-                <input value={mcpServerForm.command} onInput={(e) => setMcpServerForm(prev => ({ ...prev, command: (e.target as HTMLInputElement).value }))} placeholder="python server.py" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-              </div>
-            </div>
-            <div style={{ padding: 'var(--spacing-md) var(--spacing-lg)', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button onClick={() => setShowMcpServerForm(false)} style={btnCancelStyle}>取消</button>
-              <button onClick={saveMcpServer} disabled={savingMcpServer} style={btnSaveStyle}>{savingMcpServer ? '保存中...' : '保存'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
 case "about":
         return (
           <div style={{ padding: "24px" }}>
@@ -1043,6 +881,162 @@ case "about":
       >
         {renderPanel()}
       </div>
+      {/* Provider 添加表单弹窗 */}
+      {showProviderForm && (
+        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowProviderForm(false)}>
+          <div className="flex flex-col" style={{ width: '90%', maxWidth: '480px', maxHeight: '90vh', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between shrink-0" style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
+              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加 Provider</h3>
+              <button onClick={() => setShowProviderForm(false)} style={{ border: 'none', background: 'transparent', fontSize: '20px', cursor: 'pointer', color: 'var(--text-secondary)' }}>x</button>
+            </div>
+            <div className="flex-1 overflow-y-auto" style={{ padding: 'var(--spacing-lg)' }}>
+              <div style={{ marginBottom: 'var(--spacing-md)' }}>
+                <input
+                  list="provider-list"
+                  value={providerForm.provider}
+                  onInput={(e) => setProviderForm(prev => ({ ...prev, provider: (e.target as HTMLInputElement).value }))}
+                  placeholder="Type or select Provider..."
+                  style={{ ...inputStyle, width: '100%' }}
+                />
+                <datalist id="provider-list">
+                  {providers.map(p => <option key={p.name} value={p.name} />)}
+                </datalist>
+              </div>
+              <div style={{ marginBottom: 'var(--spacing-md)' }}>
+                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>API Key</label>
+                <input type="password" value={providerForm.api_key} onInput={(e) => setProviderForm(prev => ({ ...prev, api_key: (e.target as HTMLInputElement).value }))} placeholder="sk-..." style={{ ...inputStyle, width: '100%' }} />
+              </div>
+              <div style={{ marginBottom: 'var(--spacing-md)' }}>
+                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>API Base URL (可选)</label>
+                <input type="text" value={providerForm.api_base} onInput={(e) => setProviderForm(prev => ({ ...prev, api_base: (e.target as HTMLInputElement).value }))} placeholder="https://api.deepseek.com" style={{ ...inputStyle, width: '100%' }} />
+              </div>
+              <div style={{ marginBottom: 'var(--spacing-md)' }}>
+                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>默认模型 (可选)</label>
+                <input type="text" value={providerForm.model} onInput={(e) => setProviderForm(prev => ({ ...prev, model: (e.target as HTMLInputElement).value }))} placeholder="deepseek-chat" style={{ ...inputStyle, width: '100%' }} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 shrink-0" style={{ padding: 'var(--spacing-md) var(--spacing-lg)', borderTop: '1px solid var(--border)', background: 'var(--bg-primary)' }}>
+              <button onClick={() => setShowProviderForm(false)} style={{ padding: '8px var(--spacing-lg)', borderRadius: 'var(--radius-md)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 'var(--font-sm)', border: '1px solid var(--border)', cursor: 'pointer' }}>取消</button>
+              <button onClick={saveProvider} disabled={savingProvider} style={{ padding: '8px var(--spacing-lg)', borderRadius: 'var(--radius-md)', background: 'var(--accent)', color: '#fff', fontSize: 'var(--font-sm)', fontWeight: 600, border: 'none', cursor: 'pointer' }}>{savingProvider ? '保存中...' : '保存'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 渠道添加弹窗 */}
+      {showChannelForm && (
+        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowChannelForm(false)}>
+          <div className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
+              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加渠道</h3>
+            </div>
+            <div style={{ padding: 'var(--spacing-lg)' }}>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>渠道类型</label>
+                <select value={channelForm.channel_type} onChange={(e) => setChannelForm(prev => ({ ...prev, channel_type: (e.target as HTMLSelectElement).value }))} style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+                  {['discord','telegram','feishu','wechat','wecom','dingtalk'].map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>名称</label>
+                <input value={channelForm.name} onInput={(e) => setChannelForm(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))} placeholder="我的渠道" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
+              </div>
+            </div>
+            <div style={{ padding: 'var(--spacing-md) var(--spacing-lg)', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setShowChannelForm(false)} style={btnCancelStyle}>取消</button>
+              <button onClick={saveChannel} disabled={savingChannel} style={btnSaveStyle}>{savingChannel ? '保存中...' : '保存'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 设备配对弹窗 */}
+      {showPairingForm && (
+        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowPairingForm(false)}>
+          <div className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
+              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 配对新设备</h3>
+            </div>
+            <div style={{ padding: 'var(--spacing-lg)' }}>
+              {pairingResult ? (
+                <div style={{ textAlign: 'center', padding: '20px' }}>
+                  <div style={{ fontSize: '48px', marginBottom: '12px' }}>✅</div>
+                  <div style={{ fontSize: 'var(--font-lg)', fontWeight: 700, marginBottom: '8px' }}>配对码</div>
+                  <div style={{ fontSize: '24px', fontFamily: 'monospace', padding: '12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', marginBottom: '12px' }}>{pairingResult}</div>
+                  <button onClick={() => { setShowPairingForm(false); setPairingResult('') }} style={btnSaveStyle}>关闭</button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>设备名称</label>
+                    <input value={pairingForm.device_name} onInput={(e) => setPairingForm(prev => ({ ...prev, device_name: (e.target as HTMLInputElement).value }))} placeholder="我的手机" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                    <button onClick={() => setShowPairingForm(false)} style={btnCancelStyle}>取消</button>
+                    <button onClick={startPairing} disabled={pairingLoading} style={btnSaveStyle}>{pairingLoading ? '配对中...' : '生成配对码'}</button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 调度任务添加弹窗 */}
+      {showJobForm && (
+        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowJobForm(false)}>
+          <div className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
+              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加任务</h3>
+            </div>
+            <div style={{ padding: 'var(--spacing-lg)' }}>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>任务名称</label>
+                <input value={jobForm.name} onInput={(e) => setJobForm(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))} placeholder="每日清理" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Cron 表达式</label>
+                <input value={jobForm.cron_expr} onInput={(e) => setJobForm(prev => ({ ...prev, cron_expr: (e.target as HTMLInputElement).value }))} placeholder="0 * * * *" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
+              </div>
+            </div>
+            <div style={{ padding: 'var(--spacing-md) var(--spacing-lg)', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setShowJobForm(false)} style={btnCancelStyle}>取消</button>
+              <button onClick={saveJob} disabled={savingJob} style={btnSaveStyle}>{savingJob ? '保存中...' : '保存'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MCP 服务器添加弹窗 */}
+      {showMcpServerForm && (
+        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowMcpServerForm(false)}>
+          <div className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
+              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加 MCP 服务器</h3>
+            </div>
+            <div style={{ padding: 'var(--spacing-lg)' }}>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>服务器名称</label>
+                <input value={mcpServerForm.name} onInput={(e) => setMcpServerForm(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))} placeholder="my-server" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>传输方式</label>
+                <select value={mcpServerForm.transport} onChange={(e) => setMcpServerForm(prev => ({ ...prev, transport: (e.target as HTMLSelectElement).value }))} style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+                  <option value="stdio">stdio</option><option value="sse">sse</option>
+                </select>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>命令/URL</label>
+                <input value={mcpServerForm.command} onInput={(e) => setMcpServerForm(prev => ({ ...prev, command: (e.target as HTMLInputElement).value }))} placeholder="python server.py" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
+              </div>
+            </div>
+            <div style={{ padding: 'var(--spacing-md) var(--spacing-lg)', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setShowMcpServerForm(false)} style={btnCancelStyle}>取消</button>
+              <button onClick={saveMcpServer} disabled={savingMcpServer} style={btnSaveStyle}>{savingMcpServer ? '保存中...' : '保存'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

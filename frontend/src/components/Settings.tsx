@@ -43,6 +43,16 @@ export default function Settings() {
   const [mcpTools, setMcpTools] = useState<any[]>([])
   const [skills, setSkills] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
+  const [appVersion, setAppVersion] = useState<string>("")
+
+  // 获取版本号 (从后端 /update/status 动态获取,避免硬编码)
+  useEffect(() => {
+    apiGet<any>("/update/status").then((res) => {
+      if (res?.data?.current_version) {
+        setAppVersion(res.data.current_version)
+      }
+    }).catch(() => { /* ignore */ })
+  }, [])
 
   // 渠道添加表单
   const [showChannelForm, setShowChannelForm] = useState(false)
@@ -807,7 +817,7 @@ case "about":
                 Pangu Nebula
               </div>
               <div style={{ fontSize: "var(--font-sm)", color: "var(--text-secondary)", marginBottom: "16px" }}>
-                版本 v2.1.1
+                版本 v{appVersion || "..."}
               </div>
               <div style={{ fontSize: "var(--font-sm)", color: "var(--text-secondary)", lineHeight: 1.6 }}>
                 盘古星云 - 一个基于多 Provider 的智能 AI 助理平台,支持角色管理、记忆图谱、

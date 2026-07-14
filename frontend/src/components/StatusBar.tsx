@@ -11,6 +11,7 @@ interface StatusBarProps {
 export default function StatusBar({ provider, persona, syncStatus }: StatusBarProps) {
   // 连接状态: green(已连接) / yellow(连接中) / red(断开)
   const [connStatus, setConnStatus] = useState<"green" | "yellow" | "red">("yellow")
+  const [version, setVersion] = useState<string>("")
 
   useEffect(() => {
     // 轮询后端 /health 检查连接状态 (直连, 非统一格式不走 invoke)
@@ -21,6 +22,14 @@ export default function StatusBar({ provider, persona, syncStatus }: StatusBarPr
         const res = await fetch(`${getApiBase()}/health`)
         if (!active) return
         setConnStatus(res.ok ? "green" : "red")
+        // Fetch version from backend API
+        try {
+          const vRes = await fetch(`${getApiBase()}/update/status`)
+          if (vRes.ok && active) {
+            const vData = await vRes.json()
+            setVersion(vData?.data?.current_version || "")
+          }
+        } catch { /* ignore */ }
       } catch {
         if (active) setConnStatus("red")
       }
@@ -76,7 +85,7 @@ export default function StatusBar({ provider, persona, syncStatus }: StatusBarPr
       {/* 右侧: 同步状态 + 版本号 */}
       <div className="flex items-center gap-3">
         <span style={{ opacity: 0.7 }}>同步: {syncStatus}</span>
-        <span style={{ opacity: 0.5 }}>v1.0.0</span>
+        <span style={{ opacity: 0.5 }}>v{version || "..."}</span>
       </div>
     </div>
   )

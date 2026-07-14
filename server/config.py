@@ -1,13 +1,29 @@
-﻿import os
-import sys
+﻿import os, sys
 from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
 def _get_app_dir() -> Path:
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        return Path(sys.executable).parent
+    """Resolve the application data directory.
+
+    - Frozen (PyInstaller onedir): use platform-appropriate user data dir
+      (%LOCALAPPDATA%/PanguNebula on Windows, etc.), because the exe directory
+      may be read-only (e.g., C:/Program Files/).
+    - Dev mode: use the project root (one level above server/).
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        # PyInstaller onedir – use OS user data directory
+        import platform
+        system = platform.system()
+        if system == "Windows":
+            base = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")))
+        elif system == "Darwin":
+            base = Path.home() / "Library" / "Application Support"
+        else:
+            base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+        return base / "PanguNebula"
+    # Dev mode: project root (parent of the server/ directory)
     return Path(__file__).resolve().parent.parent
 
 

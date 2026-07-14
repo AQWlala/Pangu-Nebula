@@ -21,7 +21,7 @@ from ..config import APP_DIR
 
 
 # 当前应用版本 (与 launch.py 中 VERSION 保持一致)
-CURRENT_VERSION = "2.1.6"
+CURRENT_VERSION = "2.1.7"
 
 # 更新相关目录
 UPDATE_DIR = APP_DIR / "data" / "updates"

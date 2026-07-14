@@ -1,13 +1,11 @@
-[package]
+﻿[package]
 name = "pangu-nebula"
-version = "2.1.6"
+version = "2.1.7"
 description = "Pangu Nebula - AI Agent Desktop Platform (Tauri 2 shell)"
 authors = ["Pangu Nebula Team"]
 license = "MIT"
 edition = "2021"
 rust-version = "1.77"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 name = "pangu_nebula_lib"
@@ -26,15 +24,19 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Sidecar IPC: HTTP 请求转发到 Python FastAPI
-# blocking feature 用于 sidecar.rs 中 /health/ready 同步轮询 (setup 钩子)
+# Sidecar IPC: HTTP requests proxy to Python FastAPI
+# blocking feature for sidecar.rs /health/ready sync polling (setup hook)
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 tokio = { version = "1", features = ["full"] }
 sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = "0.3"
+# keepawake: prevent system sleep during agent tasks (macOS/Windows/Linux)
+keepawake = "0.6"
 
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!

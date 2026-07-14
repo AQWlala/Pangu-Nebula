@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Pangu Nebula",
-  "version": "2.1.6",
+  "version": "2.1.7",
   "identifier": "com.pangu.nebula",
   "build": {
     "frontendDist": "../frontend/dist",
@@ -20,12 +20,11 @@
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
-        "center": true,
-        "visible": false
+        "center": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* ipc: http://ipc.localhost https://*; img-src 'self' asset: http://asset.localhost data: blob: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:"
+      "csp": null
     },
     "withGlobalTauri": false
   },
@@ -46,7 +45,7 @@
     "copyright": "© 2026 Pangu Nebula",
     "category": "Productivity",
     "shortDescription": "AI Agent Desktop Platform",
-    "longDescription": "Pangu Nebula — 双主控 + 蜂群 worker + persona 自进化的 AI Agent 桌面平台",
+    "longDescription": "Pangu Nebula — AI Agent Desktop Platform with dual-loop + swarm + persona self-evolution",
     "windows": {
       "wix": {
         "language": [
@@ -63,7 +62,8 @@
         "displayLanguageSelector": true
       },
       "webviewInstallMode": {
-        "type": "downloadBootstrapper"
+        "type": "downloadBootstrapper",
+        "silent": true
       }
     }
   },

@@ -31,9 +31,12 @@ declare global {
  * Tauri 2 中 window.__TAURI_INTERNALS__ 始终注入 (与 withGlobalTauri 无关),
  * @tauri-apps/api 包底层依赖此对象。__TAURI__ 仅在 withGlobalTauri:true 时注入。
  */
-export const IS_TAURI =
-  typeof window !== "undefined" &&
-  (window.__TAURI_INTERNALS__ !== undefined || window.__TAURI__ !== undefined)
+/** Check if running inside Tauri shell at call time (not module load).
+ *  Avoids race conditions where __TAURI_INTERNALS__ is injected after bundle eval. */
+export function isTauri(): boolean {
+  return typeof window !== "undefined" &&
+    (window.__TAURI_INTERNALS__ !== undefined || window.__TAURI__ !== undefined)
+}
 
 /** Tauri sidecar 握手信息 (port + token) */
 interface SidecarHandshake {
@@ -52,7 +55,7 @@ interface SidecarHandshake {
  * - null — sidecar 尚未就绪
  */
 export async function getHandshake(): Promise<SidecarHandshake | null> {
-  if (!IS_TAURI) return null
+  if (!isTauri()) return null
   try {
     const { invoke } = await import("@tauri-apps/api/core")
     const result = await invoke<SidecarHandshake | null>("get_sidecar_handshake")
@@ -69,7 +72,7 @@ export async function getHandshake(): Promise<SidecarHandshake | null> {
  * CRUD 请求在 Tauri 模式下走 invoke, 不使用此函数。
  */
 export function getApiBase(): string {
-  if (IS_TAURI && window.__NEBULA_PORT__) {
+  if (isTauri() && window.__NEBULA_PORT__) {
     return `http://127.0.0.1:${window.__NEBULA_PORT__}`
   }
   return "http://127.0.0.1:7860"
@@ -81,7 +84,7 @@ export function getApiBase(): string {
  * CRUD 请求在 Tauri 模式下走 invoke (token 由 Rust 端附加), 不使用此函数。
  */
 export function getAuthToken(): string {
-  if (IS_TAURI && window.__NEBULA_TOKEN__) {
+  if (isTauri() && window.__NEBULA_TOKEN__) {
     return window.__NEBULA_TOKEN__
   }
   return ""
@@ -111,7 +114,7 @@ interface ProxyResponse {
  * - 浏览器/PyWebView 模式: fetch 直连 (动态端口 + Bearer token 或固定 7860)
  */
 async function request<T>(method: string, path: string, body?: any): Promise<T> {
-  if (IS_TAURI) {
+  if (isTauri()) {
     // Tauri 模式: CRUD 走 invoke http_proxy command (Rust 转发)
     const { invoke } = await import("@tauri-apps/api/core")
     const result = await invoke<ProxyResponse>("http_proxy", { method, path, body })
@@ -178,7 +181,7 @@ export async function apiStream(
   let baseUrl: string
   let token: string
 
-  if (IS_TAURI) {
+  if (isTauri()) {
     // Tauri 模式: 通过 invoke 主动获取 port/token (不依赖 window 全局)
     const handshake = await getHandshake()
     if (!handshake) {
@@ -240,7 +243,7 @@ export async function apiStream(
  * 在 main.tsx 入口处 await 调用此函数。
  */
 export async function initSidecarListener(): Promise<void> {
-  if (!IS_TAURI) return
+  if (!isTauri()) return
 
   try {
     // 1. 先尝试主动获取 (处理 sidecar 已就绪但事件已错过的情况)
@@ -289,7 +292,7 @@ export async function waitForSidecar(
   timeoutMs: number = 30000,
   intervalMs: number = 500
 ): Promise<boolean> {
-  if (!IS_TAURI) return true
+  if (!isTauri()) return true
 
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {

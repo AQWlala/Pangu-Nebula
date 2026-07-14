@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Pangu Nebula application entry point (v2.1.0 — Tauri 2).
+﻿# -*- coding: utf-8 -*-
+"""Pangu Nebula application entry point (v2.1.7 — Tauri 2).
 
 Launches the FastAPI backend. Desktop window is provided by the Tauri 2 shell.
 Two modes:
@@ -24,18 +24,8 @@ import time
 
 import uvicorn
 
-VERSION = "2.1.6"
+VERSION = "2.1.7"
 
-
-# ---------------------------------------------------------------------------
-# Frozen app stdout redirection (PyInstaller windowed subsystem safety)
-# ---------------------------------------------------------------------------
-if getattr(sys, "frozen", False):
-    try:
-        sys.stdout.write("")
-    except (OSError, IOError):
-        sys.stdout = open(os.devnull, "w")
-        sys.stderr = open(os.devnull, "w")
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +98,7 @@ def wait_for_server(host: str, port: int, timeout: int = 10) -> bool:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="pangu-nebula",
-        description="Pangu Nebula — metacognitive multi-agent runtime",
+        description="Pangu Nebula 鈥?metacognitive multi-agent runtime",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
@@ -144,3 +134,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

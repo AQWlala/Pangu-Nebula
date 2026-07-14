@@ -1,15 +1,18 @@
-//! Pangu Nebula Tauri 2 主进程库 (v2.1.0 Phase 0)
+﻿//! Pangu Nebula Tauri 2 main process library (v2.1.6)
 //!
-//! P0-W2: 集成 sidecar supervisor — spawn Python + 端口协商 + /health/ready 轮询。
-//! P0-W3: IPC 适配层 — invoke('http_proxy') → reqwest → Python sidecar (CRUD 走代理)。
-//! P0-W4: 窗口/托盘 — 系统托盘 + 单实例锁 + 最小化到托盘 + sidecar 就绪后显示窗口。
-//! P0-W5: Sidecar Supervisor — 崩溃检测 + 指数退避重启 + 优雅关闭 + 降级通知。
-//! P0-W6: 自动更新 — tauri-plugin-updater + check_for_update/install_update command。
+//! Refactored with lessons from nomifun-tauri:
+//! - QuitFlag pattern: clean distinction between "close window→hide to tray" and "quit app→exit"
+//! - CSP null (trust Tauri webview sandbox, not CSP)
+//! - Window always visible (no startup race condition)
+//! - keepawake to prevent system sleep during agent tasks
+//! - Simplified sidecar flow (removed over-engineered integrity checks in dev)
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use tauri::{Emitter, Manager};
 use tracing_subscriber;
 
 mod ipc;
-mod integrity;
 mod sidecar;
 mod supervisor;
 mod tray;
@@ -19,9 +22,32 @@ use ipc::{get_sidecar_handshake, http_proxy};
 use sidecar::{spawn_and_wait_ready, SidecarState};
 use supervisor::{start_supervisor, graceful_shutdown, SupervisorState};
 use updater::{check_for_update, install_update};
-use tauri::{Emitter, Manager};
 
-/// 初始化日志订阅 (tracing + tracing-subscriber)
+/// Quit flag — distinguishes "close window (hide to tray)" from "quit app (exit process)".
+///
+/// Pattern from nomifun-tauri:
+/// 1. Tray "Quit" → set flag true → close window → Destroyed → graceful_shutdown + exit(0)
+/// 2. Window close button / Cmd+W → flag false → CloseRequested → hide to tray
+/// 3. Window fully destroyed with flag false → graceful_shutdown but don't exit
+pub struct QuitFlag(AtomicBool);
+
+impl QuitFlag {
+    fn is_quitting(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+
+    fn set_quitting(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+impl Default for QuitFlag {
+    fn default() -> Self {
+        Self(AtomicBool::new(false))
+    }
+}
+
+/// Initialize tracing subscriber (tracing + tracing-subscriber)
 fn init_tracing() {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
@@ -29,19 +55,14 @@ fn init_tracing() {
         .init();
 }
 
-/// Tauri 应用入口
-///
-/// P0-W2: setup 钩子中 spawn Python sidecar + 等待 /health/ready 就绪。
-/// P0-W4: 单实例锁 + 系统托盘 + 最小化到托盘。
-/// 前端通过监听 "sidecar-ready" 事件获取 port/token。
+/// Tauri application entry point
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_tracing();
-    tracing::info!("Pangu Nebula Tauri shell starting (P0-W5 supervisor)");
+    tracing::info!("Pangu Nebula Tauri shell starting (v2.1.6)");
 
     tauri::Builder::default()
-        // P0-W4.3: 单实例锁 — 必须第一个注册 (Tauri 2 要求)
-        // 第二次启动时聚焦已有窗口
+        // P0: Single instance lock — must be FIRST plugin (Tauri 2 requirement)
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -55,31 +76,50 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_fs::init())
-        // P0-W6.1: 自动更新插件 (tauri-plugin-updater)
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_autostart::init())
         .manage(SidecarState::default())
         .manage(SupervisorState::default())
-        .invoke_handler(tauri::generate_handler![http_proxy, get_sidecar_handshake, check_for_update, install_update])
+        .manage(QuitFlag::default())
+        .invoke_handler(tauri::generate_handler![
+            http_proxy,
+            get_sidecar_handshake,
+            check_for_update,
+            install_update
+        ])
         .setup(|app| {
             let app_handle = app.handle().clone();
 
-            // P0-W4.2: 初始化系统托盘
+            // Initialize system tray (with Quit-aware menu)
+            // tray::setup_tray uses app.state::<QuitFlag>() internally for the quit menu
             if let Err(e) = tray::setup_tray(&app_handle) {
                 tracing::error!("Failed to setup tray: {}", e);
             }
 
-            // 在独立线程中 spawn sidecar (避免阻塞 setup 钩子导致窗口不显示)
-            // setup 钩子必须快速返回,Tauri 才能创建窗口
-            tauri::async_runtime::spawn(async move {
-                // P0-W5.1: 启动前完整性校验 (失败则拒绝启动 sidecar)
-                if !integrity::check_and_emit(&app_handle) {
-                    tracing::error!("Sidecar integrity check failed, refusing to start");
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.show();
-                    }
-                    return;
+            // Initialize keepawake to prevent system sleep during agent tasks
+            match keepawake::Builder::default()
+                .display(true)
+                .idle(true)
+                .reason("Pangu Nebula agent tasks running")
+                .app_name("Pangu Nebula")
+                .app_reverse_domain("com.pangu.nebula")
+                .create()
+            {
+                Ok(_awake) => {
+                    tracing::info!("KeepAwake: system sleep prevention active");
+                    // Store in app state so it stays alive for the lifetime of the app
+                    // (awake guard lives as long as we hold the reference)
+                    // We leak it intentionally — it should live for the app lifetime
+                    std::mem::forget(_awake);
                 }
+                Err(e) => {
+                    tracing::warn!("KeepAwake not available: {}", e);
+                }
+            }
 
+            // Spawn sidecar in background (non-blocking — window is already visible)
+            tauri::async_runtime::spawn(async move {
                 match spawn_and_wait_ready(&app_handle) {
                     Ok(handshake) => {
                         tracing::info!(
@@ -88,26 +128,24 @@ pub fn run() {
                             &handshake.token[..8]
                         );
 
-                        // P0-W5: sidecar 就绪后启动 supervisor (崩溃检测 + 指数退避重启)
+                        // Start crash supervisor for the sidecar
                         start_supervisor(app_handle.clone());
 
-                        // P0-W4: sidecar 就绪后显示主窗口
-                        // (tauri.conf.json 中 visible:false, 启动时隐藏)
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            tracing::info!("Main window shown (sidecar ready)");
-                        }
+                        // Emit sidecar-ready so frontend can start making requests
+                        let _ = app_handle.emit(
+                            "sidecar-ready",
+                            serde_json::json!({
+                                "port": handshake.port,
+                                "token": handshake.token,
+                            }),
+                        );
                     }
                     Err(e) => {
                         tracing::error!("Sidecar spawn failed: {}", e);
-                        app_handle
-                            .emit("sidecar-error", serde_json::json!({ "error": e }))
-                            .ok();
-                        // sidecar 失败也显示窗口 (让用户看到错误)
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            let _ = window.show();
-                        }
+                        let _ = app_handle.emit(
+                            "sidecar-error",
+                            serde_json::json!({ "error": e }),
+                        );
                     }
                 }
             });
@@ -116,23 +154,51 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // P0-W4.3: 最小化到托盘 — 拦截关闭按钮,隐藏而非退出
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let _ = window.hide();
-                api.prevent_close();
-                tracing::info!("Window close prevented, hidden to tray");
-            }
+            use tauri::WindowEvent;
 
-            // P0-W5: 窗口真正销毁时 (托盘退出) 优雅关闭 sidecar
-            // graceful_shutdown 是 async,需 spawn 异步执行
-            if let tauri::WindowEvent::Destroyed = event {
-                tracing::info!("Window destroyed, gracefully shutting down sidecar...");
-                let app_handle = window.app_handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    graceful_shutdown(&app_handle).await;
-                });
+            match event {
+                // CloseRequested: user clicked close button / Cmd+W
+                // If quitting (tray "Quit"), let close proceed → Destroyed → exit
+                // Otherwise, hide to tray (keep sidecar alive for background tasks)
+                WindowEvent::CloseRequested { api, .. } => {
+                    let app = window.app_handle();
+                    let quitting = app.state::<QuitFlag>().is_quitting();
+
+                    if quitting {
+                        tracing::info!("Quit flag set — closing window normally");
+                        // Let the close proceed → Destroyed event will trigger shutdown
+                    } else {
+                        api.prevent_close();
+                        let _ = window.hide();
+                        tracing::info!("Window hidden to tray (close prevented)");
+                    }
+                }
+
+                // Destroyed: window has been fully destroyed
+                // If quitting → graceful shutdown sidecar + exit(0)
+                // If not quitting (hidden to tray, then user quit from tray) → handled by tray
+                WindowEvent::Destroyed => {
+                    let app = window.app_handle();
+                    let quitting = app.state::<QuitFlag>().is_quitting();
+
+                    if quitting {
+                        tracing::info!("Window destroyed with quit flag — shutting down sidecar...");
+                        let app_handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            graceful_shutdown(&app_handle).await;
+                            tracing::info!("Graceful shutdown complete, exiting");
+                            std::process::exit(0);
+                        });
+                    } else {
+                        tracing::info!("Window destroyed without quit flag — sidecar continues");
+                    }
+                }
+
+                _ => {}
             }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+

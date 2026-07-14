@@ -241,9 +241,9 @@ class UpdateService:
         # mock: 总是返回比当前版本更高的版本号 (用于测试)
         # 生产环境替换为真实 HTTP 请求
         return {
-            "version": "1.0.1",  # 模拟新版本
+            "version": "99.0.0",  # mock new version (always higher)
             "release_notes": "Bug fixes and performance improvements",
-            "download_url": f"{self.manifest_url}/pangu-nebula-1.0.1.zip",
+            "download_url": f"{self.manifest_url}/pangu-nebula-99.0.0.zip",
             "sha256": "mock_sha256_hash_value",
             "size_bytes": 50_000_000,
         }
@@ -345,7 +345,7 @@ class UpdateService:
         version_marker = DOWNLOAD_DIR / "installed_version.txt"
         version_marker.write_text(
             json.dumps({
-                "version": "1.0.1",
+                "version": "99.0.0",
                 "installed_at": datetime.utcnow().isoformat(),
                 "source_file": str(downloaded_path),
             }),
@@ -353,7 +353,7 @@ class UpdateService:
         )
 
         # 更新状态
-        new_version = "1.0.1"  # mock 版本号
+        new_version = "99.0.0"  # mock 版本号
         state["previous_version"] = previous_version
         state["current_version"] = new_version
         state["last_update_at"] = datetime.utcnow().isoformat()

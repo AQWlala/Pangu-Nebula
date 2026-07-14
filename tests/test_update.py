@@ -83,29 +83,29 @@ class TestVersionComparison:
 
     def test_compare_higher_version(self):
         """更高版本应返回 1"""
-        assert UpdateService._compare_versions("1.0.1", "1.0.0") == 1
+        assert UpdateService._compare_versions("99.0.0", "1.0.0") == 1
         assert UpdateService._compare_versions("2.0.0", "1.9.9") == 1
         assert UpdateService._compare_versions("1.1.0", "1.0.9") == 1
 
     def test_compare_lower_version(self):
         """更低版本应返回 -1"""
-        assert UpdateService._compare_versions("1.0.0", "1.0.1") == -1
+        assert UpdateService._compare_versions("1.0.0", "99.0.0") == -1
         assert UpdateService._compare_versions("1.9.9", "2.0.0") == -1
 
     def test_compare_with_v_prefix(self):
         """带 v 前缀的版本号应正确比较"""
         assert UpdateService._compare_versions("v1.0.0", "1.0.0") == 0
-        assert UpdateService._compare_versions("v1.0.1", "v1.0.0") == 1
+        assert UpdateService._compare_versions("v99.0.0", "v1.0.0") == 1
 
     def test_compare_different_length(self):
         """不同长度的版本号应正确比较 (补 0)"""
         assert UpdateService._compare_versions("1.0", "1.0.0") == 0
-        assert UpdateService._compare_versions("1.0.1", "1.0") == 1
+        assert UpdateService._compare_versions("99.0.0", "1.0") == 1
 
     def test_compare_with_suffix(self):
         """带后缀的版本号应正确比较 (仅数字部分)"""
         assert UpdateService._compare_versions("1.0.0-beta", "1.0.0") == 0
-        assert UpdateService._compare_versions("1.0.1-rc1", "1.0.0") == 1
+        assert UpdateService._compare_versions("99.0.0-rc1", "1.0.0") == 1
 
 
 # ----------------------------------------------------------------------
@@ -158,7 +158,7 @@ class TestDownloadUpdate:
         assert "file_path" in result
         assert Path(result["file_path"]).exists()
         assert result["sha256_verified"] is True
-        assert result["version"] == "1.0.1"
+        assert result["version"] == "99.0.0"
 
     @pytest.mark.asyncio
     async def test_download_update_no_url(self, tmp_path, monkeypatch):
@@ -204,12 +204,12 @@ class TestInstallUpdate:
 
         assert result["installed"] is True
         assert result["previous_version"] == CURRENT_VERSION
-        assert result["new_version"] == "1.0.1"
+        assert result["new_version"] == "99.0.0"
         assert result["restart_required"] is True
 
         # 2. 验证状态已更新
         status = isolated_update_service.get_status()
-        assert status["current_version"] == "1.0.1"
+        assert status["current_version"] == "99.0.0"
         assert status["previous_version"] == CURRENT_VERSION
         assert status["last_update_at"] is not None
 
@@ -217,7 +217,7 @@ class TestInstallUpdate:
     async def test_install_update_with_existing_file(self, isolated_update_service, tmp_path):
         """使用已有文件安装"""
         # 创建虚拟下载文件
-        file_path = tmp_path / "pangu-nebula-1.0.1.zip"
+        file_path = tmp_path / "pangu-nebula-99.0.0.zip"
         file_path.write_bytes(b"mock update package")
 
         result = await isolated_update_service.install_update(downloaded_file=str(file_path))
@@ -253,7 +253,7 @@ class TestInstallUpdate:
         history = isolated_update_service.get_history()
         assert len(history) == 1
         assert history[0]["from"] == CURRENT_VERSION
-        assert history[0]["to"] == "1.0.1"
+        assert history[0]["to"] == "99.0.0"
 
 
 # ----------------------------------------------------------------------
@@ -282,14 +282,14 @@ class TestRollback:
         rollback_result = await isolated_update_service.rollback_update()
 
         assert rollback_result["rolled_back"] is True
-        assert rollback_result["from_version"] == "1.0.1"
+        assert rollback_result["from_version"] == "99.0.0"
         assert rollback_result["to_version"] == CURRENT_VERSION
         assert rollback_result["restart_required"] is True
 
         # 3. 验证状态已恢复
         status = isolated_update_service.get_status()
         assert status["current_version"] == CURRENT_VERSION
-        assert status["previous_version"] == "1.0.1"
+        assert status["previous_version"] == "99.0.0"
 
     @pytest.mark.asyncio
     async def test_rollback_records_history(self, isolated_update_service):
@@ -301,7 +301,7 @@ class TestRollback:
         assert len(history) == 2
         # 第二条应为回滚记录
         assert history[1]["action"] == "rollback"
-        assert history[1]["from"] == "1.0.1"
+        assert history[1]["from"] == "99.0.0"
         assert history[1]["to"] == CURRENT_VERSION
 
 
@@ -397,7 +397,7 @@ class TestUpdateAPI:
         assert data["ok"] is True
         assert data["data"]["installed"] is True
         assert data["data"]["previous_version"] == CURRENT_VERSION
-        assert data["data"]["new_version"] == "1.0.1"
+        assert data["data"]["new_version"] == "99.0.0"
 
     def test_update_rollback_endpoint_without_previous(self, update_client):
         """POST /update/rollback 无上一版本时应返回 400"""
@@ -421,7 +421,7 @@ class TestUpdateAPI:
         rb_data = rollback_resp.json()
         assert rb_data["ok"] is True
         assert rb_data["data"]["rolled_back"] is True
-        assert rb_data["data"]["from_version"] == "1.0.1"
+        assert rb_data["data"]["from_version"] == "99.0.0"
         assert rb_data["data"]["to_version"] == CURRENT_VERSION
 
     def test_update_history_endpoint(self, update_client):

@@ -15,7 +15,7 @@ mod supervisor;
 mod tray;
 mod updater;
 
-use ipc::http_proxy;
+use ipc::{get_sidecar_handshake, http_proxy};
 use sidecar::{spawn_and_wait_ready, SidecarState};
 use supervisor::{start_supervisor, graceful_shutdown, SupervisorState};
 use updater::{check_for_update, install_update};
@@ -59,7 +59,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SidecarState::default())
         .manage(SupervisorState::default())
-        .invoke_handler(tauri::generate_handler![http_proxy, check_for_update, install_update])
+        .invoke_handler(tauri::generate_handler![http_proxy, get_sidecar_handshake, check_for_update, install_update])
         .setup(|app| {
             let app_handle = app.handle().clone();
 

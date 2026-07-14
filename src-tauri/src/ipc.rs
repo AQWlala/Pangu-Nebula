@@ -11,7 +11,7 @@
 //! - 返回 ProxyResponse { ok, data, error } 与前端 ApiResponse<T> 对齐
 //! - 错误返回 Err(String) (Tauri 会包装为 reject promise)
 
-use crate::sidecar::SidecarState;
+use crate::sidecar::{SidecarHandshake, SidecarState};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -102,4 +102,26 @@ pub async fn http_proxy(
             .and_then(|v| v.as_str())
             .map(String::from),
     })
+}
+
+/// 获取 sidecar 握手信息 (port + token)
+///
+/// 前端通过 `invoke('get_sidecar_handshake')` 获取 sidecar 的 port 和 token。
+/// 用于解决 sidecar-ready 事件的 fire-and-forget 竞态问题:
+/// 如果事件在 listen() 注册前发出, 前端可通过此命令主动获取。
+///
+/// 返回:
+/// - `Some({ port, token })` — sidecar 已就绪
+/// - `None` — sidecar 尚未就绪
+#[tauri::command]
+pub async fn get_sidecar_handshake(
+    state: State<'_, SidecarState>,
+) -> Result<Option<serde_json::Value>, String> {
+    let guard = state.handshake.lock().unwrap();
+    Ok(guard.as_ref().map(|h: &SidecarHandshake| {
+        serde_json::json!({
+            "port": h.port,
+            "token": h.token,
+        })
+    }))
 }

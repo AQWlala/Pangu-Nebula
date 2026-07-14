@@ -1,4 +1,4 @@
-﻿// 主应用框架 - Titlebar + Sidebar + 主内容区 + StatusBar + MascotAssistant
+// 主应用框架 - Titlebar + Sidebar + 主内容区 + StatusBar + MascotAssistant
 import { useState, useEffect } from "preact/hooks"
 import Titlebar from "./components/Titlebar"
 import Sidebar from "./components/Sidebar"
@@ -18,7 +18,7 @@ import SkillMarketplace from "./components/SkillMarketplace"
 import WikiBrowser from "./components/WikiBrowser"
 import WikiReviewInbox from "./components/WikiReviewInbox"
 import Dashboard from "./components/Dashboard"
-import { apiGet, apiPost, getApiBase } from "./lib/api"
+import { apiGet, apiPost, getApiBase, IS_TAURI, waitForSidecar } from "./lib/api"
 
 export default function App() {
   // 当前页面 - 使用 useState 管理, 不使用 URL 路由 (PyWebView 环境)
@@ -35,16 +35,33 @@ export default function App() {
   const [providerName, setProviderName] = useState("未连接")
   const [personaName, setPersonaName] = useState("默认")
   const [syncStatus, setSyncStatus] = useState("离线")
+  // Sidecar 就绪状态 (Tauri 模式下需等待 sidecar 启动完成)
+  const [sidecarReady, setSidecarReady] = useState(!IS_TAURI)
+  const [sidecarError, setSidecarError] = useState("")
 
-  // 初始化: 设置主题 + 检查引导
+  // 初始化: 等待 sidecar 就绪 + 设置主题 + 检查引导
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    const onboardingDone = localStorage.getItem("onboarding-complete")
-    if (!onboardingDone) {
-      setShowOnboarding(true)
+
+    const init = async () => {
+      // Tauri 模式: 等待 sidecar 就绪 (最多 30s)
+      if (IS_TAURI) {
+        const ready = await waitForSidecar(30000, 500)
+        if (!ready) {
+          setSidecarError("Sidecar 启动超时,请重试或检查日志")
+          return
+        }
+        setSidecarReady(true)
+      }
+
+      // sidecar 就绪后加载初始状态
+      const onboardingDone = localStorage.getItem("onboarding-complete")
+      if (!onboardingDone) {
+        setShowOnboarding(true)
+      }
+      loadStatus()
     }
-    // 加载初始状态
-    loadStatus()
+    init()
   }, [])
 
   // 主题变化时更新 DOM
@@ -153,6 +170,54 @@ export default function App() {
       default:
         return <ChatPanel />
     }
+  }
+
+  // Tauri 模式下, sidecar 未就绪时显示加载界面
+  if (IS_TAURI && !sidecarReady) {
+    return (
+      <div
+        className="flex flex-col h-screen items-center justify-center"
+        style={{
+          background: "var(--bg-primary)",
+          color: "var(--text-primary)",
+          gap: "16px",
+        }}
+      >
+        {sidecarError ? (
+          <>
+            <div style={{ fontSize: "48px" }}>⚠️</div>
+            <div style={{ fontSize: "var(--font-lg)", fontWeight: 700 }}>
+              {sidecarError}
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                padding: "8px 24px",
+                borderRadius: "var(--radius-md)",
+                background: "var(--accent)",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+                fontSize: "var(--font-sm)",
+                fontWeight: 600,
+              }}
+            >
+              重试
+            </button>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: "48px", animation: "spin 2s linear infinite" }}>⚙️</div>
+            <div style={{ fontSize: "var(--font-lg)", fontWeight: 600 }}>
+              正在启动 Pangu Nebula...
+            </div>
+            <div style={{ fontSize: "var(--font-sm)", color: "var(--text-secondary)" }}>
+              等待后端服务就绪
+            </div>
+          </>
+        )}
+      </div>
+    )
   }
 
   return (

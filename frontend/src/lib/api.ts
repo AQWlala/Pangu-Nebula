@@ -26,10 +26,42 @@ declare global {
   }
 }
 
-/** 是否运行在 Tauri sidecar 模式 */
+/** 是否运行在 Tauri sidecar 模式
+ *
+ * Tauri 2 中 window.__TAURI_INTERNALS__ 始终注入 (与 withGlobalTauri 无关),
+ * @tauri-apps/api 包底层依赖此对象。__TAURI__ 仅在 withGlobalTauri:true 时注入。
+ */
 export const IS_TAURI =
   typeof window !== "undefined" &&
-  (window.__TAURI__ !== undefined || window.__TAURI_INTERNALS__ !== undefined)
+  (window.__TAURI_INTERNALS__ !== undefined || window.__TAURI__ !== undefined)
+
+/** Tauri sidecar 握手信息 (port + token) */
+interface SidecarHandshake {
+  port: number
+  token: string
+}
+
+/**
+ * 通过 invoke 主动获取 sidecar 握手信息 (消除事件竞态)
+ *
+ * 用于解决 sidecar-ready 事件的 fire-and-forget 竞态:
+ * 如果事件在 listen() 注册前发出, 前端可通过此命令主动获取。
+ *
+ * 返回:
+ * - { port, token } — sidecar 已就绪
+ * - null — sidecar 尚未就绪
+ */
+export async function getHandshake(): Promise<SidecarHandshake | null> {
+  if (!IS_TAURI) return null
+  try {
+    const { invoke } = await import("@tauri-apps/api/core")
+    const result = await invoke<SidecarHandshake | null>("get_sidecar_handshake")
+    return result
+  } catch (e) {
+    console.warn("[sidecar] get_sidecar_handshake failed:", e)
+    return null
+  }
+}
 
 /** API 基础 URL: Tauri 模式动态端口,否则固定 7860
  *
@@ -133,15 +165,34 @@ export async function apiDelete<T>(path: string): Promise<T> {
   return request<T>("DELETE", path)
 }
 
-/** SSE 流式请求 - 用 fetch + ReadableStream 解析 data: 行 */
+/** SSE 流式请求 - 用 fetch + ReadableStream 解析 data: 行
+ *
+ * Tauri 模式下通过 invoke get_sidecar_handshake 获取动态 port/token,
+ * 不依赖 window 全局变量 (消除竞态条件)。
+ */
 export async function apiStream(
   path: string,
   body: any,
   onChunk: (text: string) => void
 ): Promise<void> {
-  const baseUrl = getApiBase()
+  let baseUrl: string
+  let token: string
+
+  if (IS_TAURI) {
+    // Tauri 模式: 通过 invoke 主动获取 port/token (不依赖 window 全局)
+    const handshake = await getHandshake()
+    if (!handshake) {
+      throw new Error("Sidecar 未就绪,无法建立流式连接")
+    }
+    baseUrl = `http://127.0.0.1:${handshake.port}`
+    token = handshake.token
+  } else {
+    // PyWebView 模式: 使用固定端口
+    baseUrl = getApiBase()
+    token = getAuthToken()
+  }
+
   const url = `${baseUrl}${path}`
-  const token = getAuthToken()
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -179,39 +230,77 @@ export async function apiStream(
 }
 
 /**
- * 初始化 sidecar 事件监听 (仅 Tauri 模式)
+ * 初始化 sidecar 事件监听 + 主动获取握手信息 (仅 Tauri 模式)
  *
- * 监听 Tauri 主进程 emit 的 "sidecar-ready" 事件,
- * 将 port/token 注入 window.__NEBULA_PORT__/__NEBULA_TOKEN__。
- * 在 main.tsx 入口处调用此函数。
+ * 消除 sidecar-ready 事件的 fire-and-forget 竞态:
+ * 1. 先通过 invoke get_sidecar_handshake 主动获取 (处理事件已发出的情况)
+ * 2. 如果还未就绪, 注册事件监听等待后续 emit
+ * 3. 两种方式都注入 window.__NEBULA_PORT__/__NEBULA_TOKEN__ (向后兼容)
+ *
+ * 在 main.tsx 入口处 await 调用此函数。
  */
 export async function initSidecarListener(): Promise<void> {
   if (!IS_TAURI) return
 
-  // 动态导入 Tauri event API (避免 PyWebView 模式下加载失败)
   try {
+    // 1. 先尝试主动获取 (处理 sidecar 已就绪但事件已错过的情况)
+    const handshake = await getHandshake()
+    if (handshake) {
+      window.__NEBULA_PORT__ = handshake.port
+      window.__NEBULA_TOKEN__ = handshake.token
+      console.log(`[sidecar] Handshake via command: port=${handshake.port}`)
+    }
+
+    // 2. 注册事件监听 (处理 sidecar 尚未就绪的情况,或后续重启)
     const { listen } = await import("@tauri-apps/api/event")
 
-    // 监听 sidecar-ready 事件
     await listen<{ port: number; token: string }>("sidecar-ready", (event) => {
       const { port, token } = event.payload
       window.__NEBULA_PORT__ = port
       window.__NEBULA_TOKEN__ = token
-      console.log(`[sidecar] Ready: port=${port}, token=${token.slice(0, 8)}...`)
+      console.log(`[sidecar] Ready via event: port=${port}, token=${token.slice(0, 8)}...`)
     })
 
-    // 监听 sidecar-health 事件 (后端 /health/ready 就绪)
     await listen<{ status: string }>("sidecar-health", (event) => {
       console.log(`[sidecar] Health: ${event.payload.status}`)
     })
 
-    // 监听 sidecar-error 事件
     await listen<{ error: string }>("sidecar-error", (event) => {
       console.error(`[sidecar] Error: ${event.payload.error}`)
     })
 
     console.log("[sidecar] Event listeners registered")
   } catch (e) {
-    console.warn("[sidecar] Failed to register Tauri event listeners:", e)
+    console.warn("[sidecar] Failed to initialize sidecar listener:", e)
   }
+}
+
+/**
+ * 等待 sidecar 就绪 (Tauri 模式专用)
+ *
+ * 轮询 get_sidecar_handshake 直到 sidecar 就绪或超时。
+ * 用于 app.tsx 启动门控,确保 sidecar 就绪后再加载组件。
+ *
+ * @param timeoutMs 超时时间 (默认 30s)
+ * @param intervalMs 轮询间隔 (默认 500ms)
+ * @returns true=就绪, false=超时
+ */
+export async function waitForSidecar(
+  timeoutMs: number = 30000,
+  intervalMs: number = 500
+): Promise<boolean> {
+  if (!IS_TAURI) return true
+
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const handshake = await getHandshake()
+    if (handshake) {
+      window.__NEBULA_PORT__ = handshake.port
+      window.__NEBULA_TOKEN__ = handshake.token
+      return true
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+  console.error("[sidecar] waitForSidecar timed out")
+  return false
 }

@@ -131,12 +131,16 @@ pub fn spawn_and_wait_ready(app: &AppHandle) -> Result<SidecarHandshake, String>
         &handshake.token[..8]
     );
 
-    // 3. 存入 app.state
+    // 3. 存入 app.state (前端可通过 get_sidecar_handshake 命令主动获取)
     let state = app.state::<SidecarState>();
     *state.handshake.lock().unwrap() = Some(handshake.clone());
     *state.child.lock().unwrap() = Some(child);
 
-    // 4. emit "sidecar-ready" 事件 (前端监听后注入 window.__NEBULA_PORT__/__NEBULA_TOKEN__)
+    // 4. 轮询 /health/ready 就绪检测 (确保 sidecar 完全就绪后再通知前端)
+    poll_health_ready(&handshake)?;
+
+    // 5. emit "sidecar-ready" 事件 (健康检查通过后,前端可安全发起请求)
+    //    注意: 即使前端因竞态错过此事件, 也可通过 get_sidecar_handshake 命令主动获取
     app.emit(
         "sidecar-ready",
         serde_json::json!({
@@ -145,9 +149,6 @@ pub fn spawn_and_wait_ready(app: &AppHandle) -> Result<SidecarHandshake, String>
         }),
     )
     .map_err(|e| format!("Failed to emit sidecar-ready: {}", e))?;
-
-    // 5. 轮询 /health/ready 就绪检测
-    poll_health_ready(&handshake)?;
 
     // 6. emit "sidecar-health" 事件
     app.emit("sidecar-health", serde_json::json!({ "status": "ready" }))

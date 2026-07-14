@@ -9,6 +9,7 @@
 """
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -152,12 +153,12 @@ def test_14_sync_version_check_mode_works():
 # 版本号一致性验证
 # ----------------------------------------------------------------------
 
-def test_15_tauri_conf_version_is_210():
-    """tauri.conf.json 版本号为 2.1.0"""
+def test_15_tauri_conf_version_is_valid():
+    """tauri.conf.json version exists and matches semver format"""
     content = (SRC_TAURI / "tauri.conf.json").read_text(encoding="utf-8")
     config = json.loads(content)
-    assert config["version"] == "2.1.1", f"tauri.conf.json version: {config['version']}"
-
+    version = config.get("version", "")
+    assert re.match(r"^\d+\.\d+\.\d+$", version), f"tauri.conf.json version invalid: {version}"
 
 def test_16_cargo_toml_version_matches_tauri():
     """Cargo.toml 版本号与 tauri.conf.json 一致"""

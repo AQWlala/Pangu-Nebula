@@ -195,8 +195,7 @@ def test_macos_tauri_bundle_config():
     import json
     tauri_conf = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
     config = json.loads(tauri_conf.read_text(encoding="utf-8"))
-    bundle = config.get("bundle", {})
-    assert bundle.get("identifier") == "com.pangu.nebula"
+    assert config.get("identifier") == "com.pangu.nebula",         f"identifier: {config.get('identifier')}"
 
 
 # ----------------------------------------------------------------------

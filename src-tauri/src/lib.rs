@@ -36,7 +36,7 @@ impl QuitFlag {
         self.0.load(Ordering::SeqCst)
     }
 
-    fn set_quitting(&self) {
+    pub fn set_quitting(&self) {
         self.0.store(true, Ordering::SeqCst);
     }
 }
@@ -78,7 +78,10 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_autostart::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .manage(SidecarState::default())
         .manage(SupervisorState::default())
         .manage(QuitFlag::default())

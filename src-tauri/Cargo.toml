@@ -1,6 +1,6 @@
-﻿[package]
+[package]
 name = "pangu-nebula"
-version = "2.1.9"
+version = "2.1.10"
 description = "Pangu Nebula - AI Agent Desktop Platform (Tauri 2 shell)"
 authors = ["Pangu Nebula Team"]
 license = "MIT"

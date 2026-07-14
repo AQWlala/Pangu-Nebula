@@ -1,4 +1,4 @@
-﻿"""Provider 配置持久化 — JSON 文件存储，env var 优先
+"""Provider 配置持久化 — JSON 文件存储，env var 优先
 
 路径管理: 使用 server.config.DATA_DIR (打包后重定向到 %APPDATA%/nebula/data)
 导入兼容: resolve_api_key / resolve_base_url 供 protocols 调用

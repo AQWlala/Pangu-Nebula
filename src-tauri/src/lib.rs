@@ -1,4 +1,4 @@
-﻿//! Pangu Nebula Tauri 2 main process library (v2.1.6)
+//! Pangu Nebula Tauri 2 main process library (v2.1.6)
 //!
 //! Refactored with lessons from nomifun-tauri:
 //! - QuitFlag pattern: clean distinction between "close window→hide to tray" and "quit app→exit"

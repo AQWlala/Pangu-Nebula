@@ -1,4 +1,4 @@
-﻿//! Pangu Nebula system tray (v2.1.6)
+//! Pangu Nebula system tray (v2.1.6)
 //!
 //! Refactored with QuitFlag pattern from nomifun-tauri:
 //! - "Quit" menu item sets QuitFlag before closing the window

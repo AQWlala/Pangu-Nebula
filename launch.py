@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Pangu Nebula application entry point (v2.1.7 — Tauri 2).
 
 Launches the FastAPI backend. Desktop window is provided by the Tauri 2 shell.
@@ -24,7 +24,7 @@ import time
 
 import uvicorn
 
-VERSION = "2.1.9"
+VERSION = "2.1.10"
 
 
 

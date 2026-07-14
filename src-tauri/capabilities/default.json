@@ -1,4 +1,4 @@
-﻿{
+{
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Pangu Nebula default capability set — deny-by-default, inspired by nomifun-tauri pattern.",

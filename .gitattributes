@@ -1,0 +1,16 @@
+# 确保文本文件使用 LF 行尾（避免 CI Linux 上 CRLF 问题）
+* text=auto eol=lf
+
+# JSON 配置文件必须无 BOM + LF
+*.json text eol=lf
+*.toml text eol=lf
+
+# 二进制文件
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary

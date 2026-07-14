@@ -1,7 +1,7 @@
 //! Pangu Nebula Sidecar Supervisor (v2.1.0 Phase 0 — P0-W2)
 //!
 //! 职责:
-//! 1. spawn Python sidecar 子进程 (`python launch.py` + NEBULA_SHELL=tauri)
+//! 1. spawn Python sidecar 子进程 (打包环境用 PyInstaller exe,开发环境用 python launch.py)
 //! 2. 读取子进程 stdout,解析 PORT=/TOKEN=/READY 握手协议
 //! 3. 轮询 /health/ready 就绪检测 (200ms 间隔, 10s 超时)
 //! 4. 通过 Tauri 事件将 port/token 注入前端
@@ -16,6 +16,7 @@
 //!   Tauri 主进程逐行读取并解析。
 
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -55,14 +56,67 @@ impl Default for SidecarState {
 pub fn spawn_and_wait_ready(app: &AppHandle) -> Result<SidecarHandshake, String> {
     tracing::info!("Spawning Python sidecar (NEBULA_SHELL=tauri)...");
 
-    // 1. spawn 子进程
-    let mut child = Command::new("python")
-        .arg("launch.py")
+    // 1. 确定 sidecar 可执行文件路径
+    //    打包环境: <resource_dir>/pangu-sidecar/pangu-nebula-sidecar/pangu-nebula-sidecar[.exe]
+    //    开发环境: python launch.py (fallback)
+    let (program, args, cwd): (PathBuf, Vec<String>, Option<PathBuf>) = {
+        match app.path().resource_dir() {
+            Ok(resource_dir) => {
+                let sidecar_dir = resource_dir
+                    .join("pangu-sidecar")
+                    .join("pangu-nebula-sidecar");
+                let sidecar_exe = sidecar_dir.join(format!(
+                    "pangu-nebula-sidecar{}",
+                    std::env::consts::EXE_SUFFIX
+                ));
+
+                if sidecar_exe.exists() {
+                    tracing::info!(
+                        "Using bundled sidecar: {}",
+                        sidecar_exe.display()
+                    );
+                    // onedir 模式: CWD 设为 sidecar 目录,确保 PyInstaller 能找到同目录依赖
+                    (sidecar_exe, vec![], Some(sidecar_dir))
+                } else {
+                    tracing::warn!(
+                        "Bundled sidecar not found at {}, falling back to python launch.py",
+                        sidecar_exe.display()
+                    );
+                    (PathBuf::from("python"), vec!["launch.py".to_string()], None)
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "resource_dir() failed ({}), falling back to python launch.py",
+                    e
+                );
+                (PathBuf::from("python"), vec!["launch.py".to_string()], None)
+            }
+        }
+    };
+
+    // 2. spawn 子进程
+    let mut command = Command::new(&program);
+    for arg in &args {
+        command.arg(arg);
+    }
+    if let Some(dir) = &cwd {
+        command.current_dir(dir);
+    }
+    // Windows: 隐藏 PyInstaller --console 模式产生的控制台窗口
+    // stdout/stderr 仍可通过 piped 读取,仅阻止可见窗口
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command
         .env("NEBULA_SHELL", "tauri")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn sidecar: {}", e))?;
+        .map_err(|e| format!("Failed to spawn sidecar ({}): {}", program.display(), e))?;
 
     // 2. 读取 stdout 解析握手协议
     let stdout = child

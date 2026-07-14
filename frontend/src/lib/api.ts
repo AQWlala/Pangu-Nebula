@@ -38,6 +38,9 @@ export function isTauri(): boolean {
     (window.__TAURI_INTERNALS__ !== undefined || window.__TAURI__ !== undefined)
 }
 
+// Backward-compatible module-level constant (evaluated at import, same as original behavior)
+export const IS_TAURI = isTauri()
+
 /** Tauri sidecar 握手信息 (port + token) */
 interface SidecarHandshake {
   port: number

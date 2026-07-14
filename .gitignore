@@ -27,3 +27,6 @@ server/sdk/__pycache__/
 # 密钥文件 (绝不提交)
 keys/updater_private.pem
 keys/updater_password.txt
+
+# 前端构建产物 (本地运行 npm run build 生成)
+frontend/dist/

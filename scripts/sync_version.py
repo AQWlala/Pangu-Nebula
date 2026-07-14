@@ -189,20 +189,20 @@ def main() -> int:
 
     all_ok = True
     for ok, msg in results:
-        status = "✅" if ok else "❌"
+        status = "[OK]" if ok else "[FAIL]"
         print(f"  {status} {msg}")
         if not ok:
             all_ok = False
 
     print("-" * 50)
     if all_ok:
-        print(f"✅ All files synchronized at version {version}")
+        print(f"[OK] All files synchronized at version {version}")
         return 0
     else:
         if args.check:
-            print(f"❌ Version mismatch detected (expected {version})")
+            print(f"[FAIL] Version mismatch detected (expected {version})")
         else:
-            print(f"❌ Some files failed to sync")
+            print(f"[FAIL] Some files failed to sync")
         return 1
 
 

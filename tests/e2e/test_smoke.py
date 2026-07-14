@@ -45,61 +45,51 @@ def _check_endpoint(client, path, description):
         pytest.xfail(f"{description} {path} 异常: {type(exc).__name__}: {exc}")
 
 
-@pytest.mark.asyncio
 def test_health(client):
     """冒烟测试: 主应用健康检查 GET /health"""
     _check_endpoint(client, "/health", "主应用健康检查")
 
 
-@pytest.mark.asyncio
 def test_health_check(client):
     """冒烟测试: 健康检查模块 GET /health-check"""
     _check_endpoint(client, "/health-check", "健康检查模块")
 
 
-@pytest.mark.asyncio
 def test_persona(client):
     """冒烟测试: 角色模块 GET /persona"""
     _check_endpoint(client, "/persona", "角色模块")
 
 
-@pytest.mark.asyncio
 def test_memory(client):
     """冒烟测试: 记忆模块 GET /memory"""
     _check_endpoint(client, "/memory", "记忆模块")
 
 
-@pytest.mark.asyncio
 def test_skills(client):
     """冒烟测试: 技能模块 GET /skills"""
     _check_endpoint(client, "/skills", "技能模块")
 
 
-@pytest.mark.asyncio
 def test_sync(client):
     """冒烟测试: 同步模块 GET /sync"""
     _check_endpoint(client, "/sync", "同步模块")
 
 
-@pytest.mark.asyncio
 def test_channel(client):
     """冒烟测试: 渠道模块 GET /channel"""
     _check_endpoint(client, "/channel", "渠道模块")
 
 
-@pytest.mark.asyncio
 def test_mcp(client):
     """冒烟测试: MCP 模块 GET /mcp"""
     _check_endpoint(client, "/mcp", "MCP 模块")
 
 
-@pytest.mark.asyncio
 def test_scheduler(client):
     """冒烟测试: 调度器模块 GET /scheduler"""
     _check_endpoint(client, "/scheduler", "调度器模块")
 
 
-@pytest.mark.asyncio
 def test_providers(client):
     """冒烟测试: Provider 模块 GET /providers"""
     _check_endpoint(client, "/providers", "Provider 模块")

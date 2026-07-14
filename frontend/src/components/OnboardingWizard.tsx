@@ -66,7 +66,7 @@ export default function OnboardingWizard({ onComplete, onSkip }: { onComplete: (
 
   // 保存 API 密钥
   const saveApiKey = async () => {
-    if (!apiKey.trim() || !provider) return
+    if (!apiKey.trim() || !provider) { setError("请先输入 API Key 并选择 Provider"); return }
     try {
       await apiPost('/providers/configure', {
         provider: provider,
@@ -74,8 +74,9 @@ export default function OnboardingWizard({ onComplete, onSkip }: { onComplete: (
         api_base: apiBase.trim() || undefined,
         default_model: modelName.trim() || undefined,
       })
-    } catch {
-      // 配置保存暂不支持,请通过环境变量设置 API Key
+    } catch (e: any) {
+      setError(e?.message || "API 配置保存失败")
+      throw e
     }
   }
 
@@ -354,7 +355,7 @@ export default function OnboardingWizard({ onComplete, onSkip }: { onComplete: (
                     {providers.map(p => (
                       <button
                         key={p.name}
-                        onClick={() => setProvider(p.name)}
+                        onClick={() => { setProvider(p.name); const bases: Record<string, string> = { deepseek: 'https://api.deepseek.com', openai: 'https://api.openai.com/v1', anthropic: 'https://api.anthropic.com', gemini: 'https://generativelanguage.googleapis.com/v1beta', qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1', zhipu: 'https://open.bigmodel.cn/api/paas/v4', kimi: 'https://api.moonshot.cn/v1', openrouter: 'https://openrouter.ai/api/v1' }; setApiBase(bases[p.name] || ''); }}
                         className="transition-all"
                         style={{
                           padding: '10px var(--spacing-md)',
@@ -409,7 +410,7 @@ export default function OnboardingWizard({ onComplete, onSkip }: { onComplete: (
               </div>
 
               {/* 自定义 API Base (仅 custom provider 时显示) */}
-              {provider === 'custom' && (
+              {true && (
                 <div style={{ marginBottom: 'var(--spacing-md)' }}>
                   <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 'var(--spacing-xs)' }}>
                     API Base URL

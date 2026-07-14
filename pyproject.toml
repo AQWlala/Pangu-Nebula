@@ -31,13 +31,6 @@ pangu-nebula = "launch:main"
 pangu-dev = "scripts.dev:main"
 pangu-build = "scripts.build:main"
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-asyncio_mode = "auto"
-markers = [
-    "benchmark: 记忆系统压测测试 (需要 --benchmark 标志启用)",
-]
-
 [tool.black]
 line-length = 88
 target-version = ["py311"]

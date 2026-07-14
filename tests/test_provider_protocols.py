@@ -583,6 +583,7 @@ async def test_deepseek_generate_strips_images_automatically(monkeypatch):
 async def test_openai_generate_with_multimodal_content_no_key(monkeypatch):
     """OpenAI (vision=True) 在无 key 时仍能处理多模态消息返回 mock"""
     monkeypatch.delenv("NEBULA_OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr("server.providers.config_store.get_provider_config", lambda name: {})
     provider = OpenAIProvider()
     assert provider.capabilities.vision is True
 
@@ -610,6 +611,7 @@ async def test_openai_generate_with_multimodal_content_no_key(monkeypatch):
 async def test_anthropic_generate_returns_mock_without_key(monkeypatch):
     """Anthropic provider 无 key 时返回 mock"""
     monkeypatch.delenv("NEBULA_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr("server.providers.config_store.get_provider_config", lambda name: {})
     provider = AnthropicProvider()
     msgs = [Message(role="user", content="Hello Claude")]
     chunks = []

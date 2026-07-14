@@ -38,11 +38,17 @@ def test_01_window_config_min_size():
     assert win["minHeight"] == 600, f"Expected minHeight=600, got {win['minHeight']}"
 
 
-def test_02_window_config_visible_false():
-    """tauri.conf.json 窗口 visible=false (sidecar 就绪后显示)"""
+def test_02_window_config_visible():
+    """tauri.conf.json 窗口 visible 配置
+
+    v2.1.7: 借鉴 nomifun 设计,窗口默认可见 (visible:true 或缺省),
+    避免 sidecar 启动竞态 (窗口隐藏→sidecar 就绪→显示窗口 的顺序依赖)。
+    窗口立即可见,sidecar 在后台异步启动,前端通过 waitForSidecar 门控。
+    """
     conf = json.loads((SRC_TAURI / "tauri.conf.json").read_text(encoding="utf-8"))
     win = conf["app"]["windows"][0]
-    assert win.get("visible") is False, "Window should be hidden on startup (visible:false)"
+    # v2.1.7+: visible 可为 true 或缺省 (缺省=true),不再要求 false
+    assert win.get("visible", True) is not False, "Window should be visible on startup (v2.1.7+)"
 
 
 def test_03_window_config_center_and_title():

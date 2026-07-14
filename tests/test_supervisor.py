@@ -186,10 +186,13 @@ def test_15_gen_sidecar_hash_includes_launch_py(tmp_path):
 # ----------------------------------------------------------------------
 
 def test_16_lib_rs_has_supervisor_module():
-    """lib.rs 声明 mod supervisor + mod integrity"""
+    """lib.rs 声明 mod supervisor
+
+    v2.1.7: integrity 模块在 dev 模式下被简化移除 (借鉴 nomifun 设计),
+    仅保留 supervisor 模块。integrity.rs 文件仍存在但不再在 lib.rs 中声明。
+    """
     content = (SRC_TAURI / "src" / "lib.rs").read_text(encoding="utf-8")
     assert "mod supervisor;" in content, "mod supervisor missing"
-    assert "mod integrity;" in content, "mod integrity missing"
 
 
 def test_17_lib_rs_manages_supervisor_state():
@@ -200,20 +203,21 @@ def test_17_lib_rs_manages_supervisor_state():
     assert "graceful_shutdown" in content, "graceful_shutdown call missing"
 
 
-def test_18_lib_rs_calls_integrity_check():
-    """lib.rs 在 spawn sidecar 之前调用 integrity::check_and_emit"""
+def test_18_lib_rs_calls_supervisor_start():
+    """lib.rs 在 sidecar spawn 成功后调用 start_supervisor
+
+    v2.1.7: integrity 检查在 dev 模式下被移除 (借鉴 nomifun 简化设计),
+    supervisor 仍在 sidecar spawn 成功后启动。
+    """
     content = (SRC_TAURI / "src" / "lib.rs").read_text(encoding="utf-8")
-    assert "integrity::check_and_emit" in content, "integrity check call missing"
-    # 验证完整性校验在 spawn 调用之前
-    # 注意: spawn_and_wait_ready 在 use 语句中首次出现 (导入), 实际调用在 setup 钩子中
-    # 需要找到实际调用位置 (match spawn_and_wait_ready), 而非导入位置
-    integrity_pos = content.find("integrity::check_and_emit")
-    # 找 setup 钩子中的实际调用 (match 语句中)
+    assert "start_supervisor" in content, "start_supervisor call missing"
+    # 验证 supervisor 在 spawn 成功后启动
+    # start_supervisor 在 use 导入语句和 setup 钩子中都会出现,找实际调用位置 (Ok 分支内)
     spawn_call_pos = content.find("match spawn_and_wait_ready")
     assert spawn_call_pos != -1, "spawn_and_wait_ready call not found"
-    assert integrity_pos < spawn_call_pos, (
-        f"Integrity check (pos {integrity_pos}) should be before spawn call (pos {spawn_call_pos})"
-    )
+    # 在 spawn 调用之后查找 start_supervisor 的实际调用
+    supervisor_call_pos = content.find("start_supervisor", spawn_call_pos)
+    assert supervisor_call_pos != -1, "start_supervisor call in setup hook not found"
 
 
 def test_19_lib_rs_graceful_shutdown_in_destroyed():

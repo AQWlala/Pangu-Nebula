@@ -122,7 +122,7 @@ pub fn start_supervisor(app: AppHandle) {
 
             // 2. 定期健康检查 (检测 sidecar 卡死但进程未退出)
             if last_health_check.elapsed() > HEALTH_CHECK_INTERVAL {
-                check_sidecar_health(&app);
+                check_sidecar_health(&app).await;
                 last_health_check = Instant::now();
             }
 
@@ -178,7 +178,7 @@ async fn restart_with_backoff(app: &AppHandle) -> Result<(), String> {
     }
 
     // 重新 spawn sidecar
-    match spawn_and_wait_ready(app) {
+    match spawn_and_wait_ready(app).await {
         Ok(_) => {
             // 重启成功,重置 retry_count
             let supervisor_state = app.state::<SupervisorState>();
@@ -192,7 +192,7 @@ async fn restart_with_backoff(app: &AppHandle) -> Result<(), String> {
 /// 检查 sidecar 健康状态 (/health/ready)
 ///
 /// 如果 /health/ready 无响应,可能 sidecar 卡死,需要重启。
-fn check_sidecar_health(app: &AppHandle) {
+async fn check_sidecar_health(app: &AppHandle) {
     let state = app.state::<SidecarState>();
     let handshake = {
         let guard = state.handshake.lock().unwrap();
@@ -203,12 +203,13 @@ fn check_sidecar_health(app: &AppHandle) {
     };
 
     let url = format!("http://127.0.0.1:{}/health/ready", handshake.port);
-    let client = reqwest::blocking::Client::builder()
+    // async reqwest (避免在 async 上下文中使用 blocking 导致 panic)
+    let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
         .unwrap();
 
-    match client.get(&url).send() {
+    match client.get(&url).send().await {
         Ok(resp) if resp.status().is_success() => {
             tracing::debug!("Health check OK: /health/ready 200");
         }

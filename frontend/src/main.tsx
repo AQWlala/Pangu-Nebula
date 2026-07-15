@@ -2,6 +2,7 @@ import { render } from 'preact'
 import './styles/variables.css'
 import './index.css'
 import App from './app'
+import ErrorBoundary from './components/ErrorBoundary'
 import { initSidecarListener } from './lib/api'
 
 // v2.1.0 Phase 0: Tauri sidecar 模式下注册事件监听
@@ -10,7 +11,12 @@ import { initSidecarListener } from './lib/api'
 // 避免竞态条件导致端口/token 注入失败
 async function bootstrap() {
   await initSidecarListener()
-  render(<App />, document.getElementById('app')!)
+  render(
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>,
+    document.getElementById('app')!
+  )
 }
 
 bootstrap()

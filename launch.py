@@ -60,13 +60,22 @@ def emit_handshake(port: int, token: str) -> None:
 
 
 def run_sidecar(host: str = "127.0.0.1", port: int | None = None) -> None:
-    """Tauri sidecar mode: start backend, emit handshake to stdout."""
+    """Tauri sidecar mode: start backend, emit handshake to stdout.
+
+    Handshake is emitted BEFORE uvicorn.run() starts. The frontend's
+    waitForSidecar() polls /health/ready until uvicorn is actually
+    listening, preventing "Failed to fetch" race conditions.
+    """
     if port is None:
         port = allocate_os_port()
     token = secrets.token_hex(32)
     os.environ["NEBULA_PORT"] = str(port)
     os.environ["NEBULA_TOKEN"] = token
+
+    # Emit handshake before uvicorn starts. Frontend waitForSidecar()
+    # polls /health/ready until uvicorn is ready, so early emission is safe.
     emit_handshake(port, token)
+
     from server.main import app
     uvicorn.run(app, host=host, port=port, log_level="warning")
 

@@ -324,7 +324,17 @@ export async function waitForSidecar(
     if (handshake) {
       window.__NEBULA_PORT__ = handshake.port
       window.__NEBULA_TOKEN__ = handshake.token
-      return true
+      // handshake 存在不代表 uvicorn 已监听端口
+      // 继续轮询 /health/ready 确保后端就绪后再返回 true
+      try {
+        const healthUrl = `http://127.0.0.1:${handshake.port}/health/ready`
+        const res = await fetch(healthUrl, { signal: AbortSignal.timeout(1000) })
+        if (res.ok) {
+          return true
+        }
+      } catch {
+        // uvicorn 未就绪,继续轮询
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs))
   }

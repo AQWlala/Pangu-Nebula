@@ -49,11 +49,11 @@ impl Default for SidecarState {
 /// 流程:
 /// 1. spawn `python launch.py` (env: NEBULA_SHELL=tauri)
 /// 2. 逐行读取 stdout,解析 PORT=/TOKEN=/READY
-/// 3. 超时 15s 未收到 READY 返回错误
+/// 3. 超时 60s 未收到 READY 返回错误
 /// 4. 将 handshake 存入 app.state,emit "sidecar-ready" 事件
-/// 5. 轮询 /health/ready 就绪检测 (200ms 间隔, 10s 超时)
+/// 5. 轮询 /health/ready 就绪检测 (200ms 间隔, 30s 超时)
 /// 6. emit "sidecar-health" 事件通知前端后端就绪
-pub fn spawn_and_wait_ready(app: &AppHandle) -> Result<SidecarHandshake, String> {
+pub async fn spawn_and_wait_ready(app: &AppHandle) -> Result<SidecarHandshake, String> {
     tracing::info!("Spawning Python sidecar (NEBULA_SHELL=tauri)...");
 
     // 1. 确定 sidecar 可执行文件路径
@@ -161,11 +161,14 @@ pub fn spawn_and_wait_ready(app: &AppHandle) -> Result<SidecarHandshake, String>
     });
 
     // 2. 读取 stdout 解析握手协议
+    //    使用 spawn_blocking 避免阻塞 async runtime (BufReader::lines 是同步阻塞)
     let stdout = child
         .stdout
         .take()
         .ok_or("Failed to capture sidecar stdout")?;
-    let handshake = parse_handshake(stdout)?;
+    let handshake = tokio::task::spawn_blocking(move || parse_handshake(stdout))
+        .await
+        .map_err(|e| format!("Handshake task panicked: {}", e))??;
 
     tracing::info!(
         "Sidecar handshake received: port={}, token={}...",
@@ -192,7 +195,7 @@ pub fn spawn_and_wait_ready(app: &AppHandle) -> Result<SidecarHandshake, String>
 
     // 5. 轮询 /health/ready 就绪检测 (失败不阻塞, 只记录警告)
     //    handshake 已存入 state, 前端请求失败会自动重试
-    if let Err(e) = poll_health_ready(&handshake) {
+    if let Err(e) = poll_health_ready(&handshake).await {
         tracing::warn!("Health check failed (non-blocking): {}", e);
     } else {
         let _ = app.emit("sidecar-health", serde_json::json!({ "status": "ready" }));
@@ -252,7 +255,7 @@ fn parse_handshake<R: std::io::Read>(stdout: R) -> Result<SidecarHandshake, Stri
 /// 轮询 /health/ready 就绪检测
 ///
 /// 间隔 200ms, 超时 30s。返回 Ok 表示 sidecar 已就绪。
-fn poll_health_ready(handshake: &SidecarHandshake) -> Result<(), String> {
+async fn poll_health_ready(handshake: &SidecarHandshake) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{}/health/ready", handshake.port);
     let start = Instant::now();
     let timeout = Duration::from_secs(30);
@@ -260,15 +263,14 @@ fn poll_health_ready(handshake: &SidecarHandshake) -> Result<(), String> {
 
     tracing::info!("Polling {} (200ms interval, 30s timeout)...", url);
 
-    // 同步阻塞轮询 (在 setup 钩子中,阻塞是预期的)
-    // 使用 ureq 或 reqwest blocking 客户端;这里用 reqwest::blocking
-    let client = reqwest::blocking::Client::builder()
+    // async reqwest 客户端 (避免在 async 上下文中使用 blocking 导致 panic)
+    let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(1))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
     while start.elapsed() < timeout {
-        match client.get(&url).send() {
+        match client.get(&url).send().await {
             Ok(resp) if resp.status().is_success() => {
                 tracing::debug!("/health/ready returned 200");
                 return Ok(());
@@ -280,7 +282,7 @@ fn poll_health_ready(handshake: &SidecarHandshake) -> Result<(), String> {
                 tracing::debug!("/health/ready connection failed: {}", e);
             }
         }
-        std::thread::sleep(interval);
+        tokio::time::sleep(interval).await;
     }
 
     Err(format!(

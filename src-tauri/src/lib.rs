@@ -123,7 +123,7 @@ pub fn run() {
 
             // Spawn sidecar in background (non-blocking — window is already visible)
             tauri::async_runtime::spawn(async move {
-                match spawn_and_wait_ready(&app_handle) {
+                match spawn_and_wait_ready(&app_handle).await {
                     Ok(handshake) => {
                         tracing::info!(
                             "Sidecar ready: port={}, token={}...",

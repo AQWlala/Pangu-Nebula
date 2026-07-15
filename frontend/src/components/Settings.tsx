@@ -123,26 +123,26 @@ export default function Settings() {
     try {
       switch (category) {
         case "provider":
-          setProviders(await apiGet<ProviderInfo[]>("/providers"))
+          setProviders((await apiGet<ProviderInfo[]>("/providers")) ?? [])
           break
         case "persona":
-          setPersonas(await apiGet<Persona[]>("/persona"))
+          setPersonas((await apiGet<Persona[]>("/persona")) ?? [])
           break
         case "channel":
-          setChannels(await apiGet<Channel[]>("/channel/list"))
+          setChannels((await apiGet<Channel[]>("/channel/list")) ?? [])
           break
         case "scheduler":
-          setJobs(await apiGet<SchedulerJob[]>("/scheduler/jobs"))
+          setJobs((await apiGet<SchedulerJob[]>("/scheduler/jobs")) ?? [])
           break
         case "sync":
-          setSyncDevices(await apiGet<any[]>("/sync/devices"))
+          setSyncDevices((await apiGet<any[]>("/sync/devices")) ?? [])
           break
-case "mcp":
-          setMcpServers(await apiGet<any[]>("/mcp/servers"))
-          setMcpTools(await apiGet<any[]>("/mcp/tools"))
+        case "mcp":
+          setMcpServers((await apiGet<any[]>("/mcp/servers")) ?? [])
+          setMcpTools((await apiGet<any[]>("/mcp/tools")) ?? [])
           break
         case "skills":
-          setSkills(await apiGet<any[]>("/skills"))
+          setSkills((await apiGet<any[]>("/skills")) ?? [])
           break
       }
     } catch (e: any) {

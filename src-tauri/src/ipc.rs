@@ -88,20 +88,34 @@ pub async fn http_proxy(
         ));
     }
 
-    // 5. 解析响应 (期望 { ok, data, error } 统一格式)
+    // 5. 解析响应
+    //    优先识别统一格式 { ok, data, error };
+    //    对于非统一格式 (如 /health 返回 {"status":"ok"}),
+    //    基于 HTTP status 判断成功, 整个响应体作为 data 返回。
     let json: serde_json::Value = resp
         .json()
         .await
         .map_err(|e| format!("Failed to parse sidecar response as JSON: {}", e))?;
 
-    Ok(ProxyResponse {
-        ok: json.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
-        data: json.get("data").cloned(),
-        error: json
-            .get("error")
-            .and_then(|v| v.as_str())
-            .map(String::from),
-    })
+    if let Some(ok_flag) = json.get("ok").and_then(|v| v.as_bool()) {
+        // 统一格式响应
+        Ok(ProxyResponse {
+            ok: ok_flag,
+            data: json.get("data").cloned(),
+            error: json
+                .get("error")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+        })
+    } else {
+        // 非统一格式响应 (如 /health, /health/ready)
+        // HTTP status 已确认成功 (上面已校验), 整个响应体作为 data 返回
+        Ok(ProxyResponse {
+            ok: true,
+            data: Some(json),
+            error: None,
+        })
+    }
 }
 
 /// 获取 sidecar 握手信息 (port + token)

@@ -102,6 +102,12 @@ async def sidecar_token_auth(request: Request, call_next):
     unauthenticated_paths = {"/health/ready", "/health", "/shutdown"}
     if request.url.path in unauthenticated_paths:
         return await call_next(request)
+    # Allow CORS preflight (OPTIONS requests don't carry Authorization header).
+    # Auth middleware is in the outer layer (added after CORSMiddleware),
+    # so without this, OPTIONS preflight would be rejected with 401 before
+    # CORS middleware can handle it, causing "Failed to fetch" in the WebView.
+    if request.method == "OPTIONS":
+        return await call_next(request)
     # Verify Bearer token
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):

@@ -285,20 +285,41 @@ export async function initSidecarListener(): Promise<void> {
  * 等待 sidecar 就绪 (Tauri 模式专用)
  *
  * 轮询 get_sidecar_handshake 直到 sidecar 就绪或超时。
+ * 同时监听 sidecar-error 事件, 收到错误立即返回 false。
  * 用于 app.tsx 启动门控,确保 sidecar 就绪后再加载组件。
  *
- * @param timeoutMs 超时时间 (默认 30s)
+ * @param timeoutMs 超时时间 (默认 90s, PyInstaller 首次启动较慢)
  * @param intervalMs 轮询间隔 (默认 500ms)
- * @returns true=就绪, false=超时
+ * @returns true=就绪, false=超时或错误
  */
 export async function waitForSidecar(
-  timeoutMs: number = 30000,
+  timeoutMs: number = 90000,
   intervalMs: number = 500
 ): Promise<boolean> {
   if (!isTauri()) return true
 
+  // 监听 sidecar-error 事件 (收到立即返回 false)
+  let sidecarFailed = false
+  let errorDetail = ""
+  try {
+    const { listen } = await import("@tauri-apps/api/event")
+    await listen<{ error: string }>("sidecar-error", (event) => {
+      sidecarFailed = true
+      errorDetail = event.payload?.error || "未知错误"
+      console.error("[sidecar] Error event:", errorDetail)
+    })
+  } catch (e) {
+    console.warn("[sidecar] Failed to listen sidecar-error:", e)
+  }
+
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
+    // 如果收到 sidecar-error, 立即返回 false
+    if (sidecarFailed) {
+      console.error("[sidecar] waitForSidecar failed early:", errorDetail)
+      return false
+    }
+
     const handshake = await getHandshake()
     if (handshake) {
       window.__NEBULA_PORT__ = handshake.port

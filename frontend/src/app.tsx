@@ -44,9 +44,9 @@ export default function App() {
     document.documentElement.dataset.theme = theme
 
     const init = async () => {
-      // Tauri 模式: 等待 sidecar 就绪 (最多 30s)
+      // Tauri 模式: 等待 sidecar 就绪 (最多 90s, PyInstaller 首次启动较慢)
       if (IS_TAURI) {
-        const ready = await waitForSidecar(30000, 500)
+        const ready = await waitForSidecar(90000, 500)
         if (!ready) {
           setSidecarError("Sidecar 启动超时,请重试或检查日志")
           return

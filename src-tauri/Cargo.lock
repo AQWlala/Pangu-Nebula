@@ -2894,7 +2894,7 @@ dependencies = [
 
 [[package]]
 name = "pangu-nebula"
-version = "2.1.12"
+version = "2.1.13"
 dependencies = [
  "keepawake",
  "reqwest 0.12.28",

@@ -7,6 +7,8 @@ from . import autowork_models  # noqa: F401
 from . import dag_models  # noqa: F401
 from . import wiki_review_models  # noqa: F401
 from . import acp_models  # noqa: F401
+from . import kb_models  # noqa: F401 - register KB tables
+from . import cu_models  # noqa: F401 - register CU tables
 from ..config import load_settings
 
 settings = load_settings()

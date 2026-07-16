@@ -220,3 +220,14 @@ CREATE INDEX IF NOT EXISTS idx_acp_messages_created_at ON acp_messages(created_a
 -- 验证索引使用情况:
 --   EXPLAIN QUERY PLAN SELECT * FROM memories WHERE persona_id = 1 AND layer = 'L3';
 -- 应显示 "USING INDEX idx_memories_persona_id_layer"
+
+-- ----------------------------------------------------------------------
+-- KB 全文检索虚拟表 (FTS5)
+-- ----------------------------------------------------------------------
+CREATE VIRTUAL TABLE IF NOT EXISTS kb_documents_fts USING fts5(
+    doc_id UNINDEXED,
+    title,
+    content,
+    tags,
+    tokenize = 'unicode61'
+);

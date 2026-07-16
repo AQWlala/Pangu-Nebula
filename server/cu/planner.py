@@ -39,7 +39,7 @@ class CUTaskPlanner:
             plan.steps.append(self._validate_step(i, step_def))
         return plan
 
-    def _validate_step(self, index, step_def):
+    def _validate_step(self, index: int, step_def: dict) -> CUTaskStep:
         if "success_criteria" not in step_def or not step_def["success_criteria"]:
             raise ValueError(f"步骤 {index} 缺少 success_criteria")
         default_timeout_ms = self._config.default_step_timeout_ms

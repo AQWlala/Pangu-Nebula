@@ -22,7 +22,7 @@ def _validate_task_id(task_id: str) -> None:
 
 
 class AuditLogger:
-    def __init__(self, log_dir: Path):
+    def __init__(self, log_dir: Path) -> None:
         self.log_dir = log_dir
 
     def log_step(self, task_id: str, step_index: int, action_type: str,

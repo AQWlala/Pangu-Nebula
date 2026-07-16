@@ -39,7 +39,7 @@ def test_fs_sandbox_path_traversal_blocked(tmp_path):
 async def test_emergency_stop_trigger():
     stop = EmergencyStop()
     assert not stop.is_triggered()
-    await stop.trigger(reason="test")
+    stop.trigger(reason="test")
     assert stop.is_triggered()
     with pytest.raises(EmergencyStopError):
         stop.check()

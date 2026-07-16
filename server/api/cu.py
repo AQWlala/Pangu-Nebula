@@ -3,7 +3,7 @@
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from server.cu.planner import CUTaskPlanner
@@ -46,9 +46,9 @@ async def create_task(req: CreateTaskRequest):
         plan = planner.plan_manual(req.instruction, req.steps)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    task_id = f"cutask-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    task_id = f"cutask-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
     _tasks[task_id] = {"task_id": task_id, "plan": plan, "status": "created",
-                       "current_step": -1, "created_at": datetime.utcnow().isoformat() + "Z"}
+                       "current_step": -1, "created_at": datetime.now(timezone.utc).isoformat() + "Z"}
     return CreateTaskResponse(success=True, task_id=task_id, step_count=len(plan.steps))
 
 
@@ -62,7 +62,7 @@ async def execute_task(task_id: str, auto_confirm: bool = False):
 
 @router.post("/emergency-stop")
 async def emergency_stop(req: EmergencyStopRequest):
-    await _emergency_stop.trigger(req.reason)
+    _emergency_stop.trigger(req.reason)
     return {"success": True, "reason": req.reason, "message": "已触发急停"}
 
 

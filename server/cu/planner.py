@@ -3,6 +3,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from server.cu.executor.action_types import ActionType
+from server.config_kb_cu import CUConfig
 
 
 @dataclass
@@ -25,8 +26,12 @@ class CUTaskPlan:
 
 
 class CUTaskPlanner:
+    # 保留为向后兼容回退值；实际运行时从 CUConfig 读取
     MAX_TIMEOUT_MS = 10000
     DEFAULT_TIMEOUT_MS = 3000
+
+    def __init__(self, config: CUConfig | None = None):
+        self._config = config if config is not None else CUConfig()
 
     def plan_manual(self, instruction: str, steps: list[dict]) -> CUTaskPlan:
         plan = CUTaskPlan(instruction=instruction)
@@ -37,9 +42,11 @@ class CUTaskPlanner:
     def _validate_step(self, index, step_def):
         if "success_criteria" not in step_def or not step_def["success_criteria"]:
             raise ValueError(f"步骤 {index} 缺少 success_criteria")
-        timeout_ms = step_def.get("timeout_ms", self.DEFAULT_TIMEOUT_MS)
-        if timeout_ms > self.MAX_TIMEOUT_MS:
-            raise ValueError(f"步骤 {index} timeout_ms={timeout_ms} 超过最大值 {self.MAX_TIMEOUT_MS}")
+        default_timeout_ms = self._config.default_step_timeout_ms
+        max_timeout_ms = self._config.max_step_timeout_ms
+        timeout_ms = step_def.get("timeout_ms", default_timeout_ms)
+        if timeout_ms > max_timeout_ms:
+            raise ValueError(f"步骤 {index} timeout_ms={timeout_ms} 超过最大值 {max_timeout_ms}")
 
         action_type = step_def["action_type"]
         rollback_action = ActionType.get_rollback_action(action_type)

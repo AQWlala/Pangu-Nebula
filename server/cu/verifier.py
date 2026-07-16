@@ -3,6 +3,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from server.cu.planner import CUTaskStep
+from server.config_kb_cu import CUConfig
 
 
 @dataclass
@@ -16,17 +17,21 @@ class VerificationResult:
 
 
 class CUResultVerifier:
+    # 保留为向后兼容回退值；实际运行时从 CUConfig 读取
     CONFIDENCE_HIGH = 0.85
     CONFIDENCE_LOW = 0.6
+
+    def __init__(self, config: CUConfig | None = None):
+        self._config = config if config is not None else CUConfig()
 
     def verify_step_sync(self, step: CUTaskStep, actual_url: str = "",
                          confidence: float = 0.0) -> VerificationResult:
         if not self._check_criteria(step.success_criteria, actual_url):
             return VerificationResult(False, "low", confidence, criteria_met=False, requires_confirmation=True)
 
-        if confidence >= self.CONFIDENCE_HIGH:
+        if confidence >= self._config.confidence_high:
             return VerificationResult(True, "high", confidence)
-        elif confidence >= self.CONFIDENCE_LOW:
+        elif confidence >= self._config.confidence_low:
             return VerificationResult(True, "medium", confidence, warning="置信度中等，建议人工复核")
         else:
             return VerificationResult(False, "low", confidence, requires_confirmation=True)

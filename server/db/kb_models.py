@@ -1,5 +1,5 @@
 """知识库元数据 ORM 模型"""
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import String, Text, Float, Integer, TIMESTAMP, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from server.db.orm import Base
@@ -16,8 +16,8 @@ class KBDocument(Base):
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     checksum: Mapped[str] = mapped_column(String(128), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     indexed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP, nullable=True)
     graph_built_at: Mapped[datetime | None] = mapped_column(TIMESTAMP, nullable=True)
 
@@ -34,7 +34,7 @@ class KBRelation(Base):
     relation_type: Mapped[str] = mapped_column(String(32), nullable=False)
     weight: Mapped[float] = mapped_column(Float, default=0.5)
     source_method: Mapped[str] = mapped_column(String(32), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=lambda: datetime.now(timezone.utc))
 
     source = relationship("KBDocument", foreign_keys=[source_id], back_populates="relations_as_source")
     target = relationship("KBDocument", foreign_keys=[target_id], back_populates="relations_as_target")

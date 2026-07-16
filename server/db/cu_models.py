@@ -1,5 +1,5 @@
 """Computer Use 审计日志 ORM 模型"""
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import String, Text, Integer, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 from server.db.orm import Base
@@ -16,6 +16,6 @@ class CUAuditLog(Base):
     result_status: Mapped[str] = mapped_column(String(32), nullable=False)
     result_data: Mapped[str | None] = mapped_column(Text, nullable=True)
     screenshot_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    started_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.utcnow)
+    started_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=lambda: datetime.now(timezone.utc))
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)

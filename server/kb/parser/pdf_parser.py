@@ -1,8 +1,11 @@
 # server/kb/parser/pdf_parser.py
 """PDF 解析器（Marker + pypdf 降级）"""
 from __future__ import annotations
+import logging
 from pathlib import Path
 from server.kb.parser.markdown_parser import ParseResult
+
+logger = logging.getLogger(__name__)
 
 
 class PdfParser:
@@ -14,8 +17,8 @@ class PdfParser:
 
         try:
             return self._parse_with_marker(file_path)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Marker PDF parser failed, falling back to pypdf: {e}")
 
         try:
             return self._parse_with_pypdf(file_path)

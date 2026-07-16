@@ -3,8 +3,9 @@
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
+import uuid
 
 from server.config_kb_cu import KBConfig
 from server.kb.storage.repo import DocumentRepo
@@ -44,7 +45,7 @@ async def import_document(req: ImportRequest):
 
     checksum = f"sha256:{hashlib.sha256(req.content.encode()).hexdigest()}"
     fm = FrontMatter(
-        id=f"kb-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+        id=f"kb-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}",
         title=req.title, type=req.type, scope=req.scope,
         source_type="manual", confidence=0.95, checksum=checksum,
         tags=req.tags, categories=req.categories,

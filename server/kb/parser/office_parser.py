@@ -48,9 +48,18 @@ class ExcelParser:
                 md_parts.append("| " + " | ".join(cells) + " |")
             md_parts.append("")
 
-        confidence = 0.95 if total_cells == 0 else min(0.95, converted_cells / total_cells)
-        if confidence < 0.95:
-            confidence = 0.6
+        if total_cells == 0:
+            confidence = 0.5  # Empty table, moderate confidence
+        else:
+            ratio = converted_cells / total_cells
+            if ratio >= 0.95:
+                confidence = 0.95
+            elif ratio >= 0.8:
+                confidence = 0.85
+            elif ratio >= 0.5:
+                confidence = 0.7
+            else:
+                confidence = 0.5
         return ParseResult(True, "\n".join(md_parts), confidence, "excel")
 
 

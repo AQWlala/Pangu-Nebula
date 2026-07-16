@@ -21,6 +21,8 @@ class StreamChunk(BaseModel):
 
     text: str = ""
     finish_reason: str | None = None
+    # v2.2.0: OpenAI 风格的工具调用增量 (delta.tool_calls)
+    tool_calls: list[dict] | None = None
     raw: dict[str, Any] | None = None
 
 
@@ -73,7 +75,13 @@ class ProtocolBase(BaseProvider):
         stripped: list[Message] = []
         for m in messages:
             if not isinstance(m.content, list):
-                stripped.append(Message(role=m.role, content=m.content))
+                # v2.2.0: 保留工具调用相关字段
+                stripped.append(Message(
+                    role=m.role,
+                    content=m.content,
+                    tool_calls=m.tool_calls,
+                    tool_call_id=m.tool_call_id,
+                ))
                 continue
             text_parts = [
                 p
@@ -90,7 +98,12 @@ class ProtocolBase(BaseProvider):
                 elif isinstance(p, str):
                     text_chunks.append(p)
             new_content = "".join(text_chunks) if text_chunks else ""
-            stripped.append(Message(role=m.role, content=new_content))
+            stripped.append(Message(
+                role=m.role,
+                content=new_content,
+                tool_calls=m.tool_calls,
+                tool_call_id=m.tool_call_id,
+            ))
         return stripped
 
     def _apply_multimodal_fallback(

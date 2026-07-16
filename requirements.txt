@@ -32,3 +32,16 @@ pypdf>=4.0.0
 # 如需高级 PDF 解析 (OCR/表格识别),用户可手动 pip install marker-pdf
 # PdfParser 在无 marker 时自动降级到 pypdf 文本提取
 # marker-pdf>=0.2.0
+
+# v2.2.0 新增依赖 (Phase 2-5: 命令执行 + 代码执行 + LanceDB KB + Browser/CU)
+# LanceDB 向量数据库 (Phase 4 知识库,PyO3 依赖 pyarrow)
+lancedb>=0.15.0
+# 终端命令执行 (Phase 2,跨平台 PTY)
+ptyprocess>=0.7.0
+pywinpty>=2.0.0; sys_platform == "win32"
+# 文档解析补充 (Phase 4 KB doc_parser,PowerPoint 格式)
+python-pptx>=0.6.23
+# Computer Use (Phase 5,屏幕截图 + GUI 自动化 + Windows a11y 树)
+Pillow>=10.0.0
+pyautogui>=0.9.54
+uiautomation>=2.0.0; sys_platform == "win32"

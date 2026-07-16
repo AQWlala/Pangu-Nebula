@@ -43,5 +43,23 @@ def list_tools() -> list[dict]:
     ]
 
 
+def list_tools_schema() -> list[dict]:
+    """v2.2.0: 返回 OpenAI function calling 格式的 tools schema。
+
+    用于注入 provider 请求体的 `tools` 字段,让 LLM 在对话中发起工具调用。
+    """
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.parameters,
+            },
+        }
+        for t in (cls() for cls in _tool_registry.values())
+    ]
+
+
 def is_registered(name: str) -> bool:
     return name in _tool_registry

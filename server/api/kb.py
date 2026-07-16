@@ -192,6 +192,27 @@ async def reject_document(
     return {"success": True, "message": "已拒绝并移除"}
 
 
+@router.get("/status")
+async def kb_status():
+    """v2.2.0 Phase 4: 知识库状态摘要 — 供 KnowledgePanel 展示。
+
+    返回 KnowledgeService.get_status() 的结果:
+    - store_type: "lance" | "chroma"
+    - chunk_count: 向量记录数
+    - persist_dir: 持久化目录
+    """
+    from server.services.knowledge_service import knowledge_service
+
+    try:
+        return {"ok": True, "data": knowledge_service.get_status(), "error": None}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "data": {"store_type": "unknown", "chunk_count": 0, "persist_dir": ""},
+            "error": str(exc),
+        }
+
+
 @router.get("/documents")
 async def list_documents(
     scope: str | None = None,
@@ -204,7 +225,8 @@ async def list_documents(
         if scope and fm.scope != scope:
             continue
         docs.append({"id": fm.id, "title": fm.title, "type": fm.type, "scope": fm.scope})
-    return {"documents": docs}
+    # v2.2.0: 添加 ok/data/error 包装以兼容 apiGet,保留 documents 字段向后兼容
+    return {"ok": True, "data": {"documents": docs}, "documents": docs, "error": None}
 
 
 @router.get("/documents/{doc_id}")
@@ -259,7 +281,9 @@ async def search_documents(
     results = await asyncio.to_thread(
         searcher.search, query=query, scope=scope, top_k=top_k
     )
-    return {"results": [{
+    search_results = [{
         "doc_id": r.doc_id, "title": r.title, "chunk_text": r.chunk_text,
         "score": r.score, "source_method": r.source_method, "scope": r.scope, "tags": r.tags,
-    } for r in results]}
+    } for r in results]
+    # v2.2.0: 添加 ok/data/error 包装以兼容 apiGet,保留 results 字段向后兼容
+    return {"ok": True, "data": {"results": search_results}, "results": search_results, "error": None}

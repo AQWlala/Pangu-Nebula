@@ -9,6 +9,7 @@ from . import wiki_review_models  # noqa: F401
 from . import acp_models  # noqa: F401
 from . import kb_models  # noqa: F401 - register KB tables
 from . import cu_models  # noqa: F401 - register CU tables
+from .migrations import run_lightweight_migrations
 from ..config import load_settings
 
 settings = load_settings()
@@ -31,3 +32,5 @@ async def init_db():
             os.makedirs(db_dir, exist_ok=True)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # v2.2.0: 补齐 create_all 无法追加的新列,旧库平滑升级
+        await conn.run_sync(run_lightweight_migrations)

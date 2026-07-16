@@ -236,6 +236,37 @@ export default function ChatPanel() {
               setMessages(prev => prev.map(m =>
                 String(m.id) === tempAssistantId ? { ...m, content: `⚠️ ${evt.error || '生成失败'}` } : m
               ))
+            } else if (evt.type === 'tool_call') {
+              // v2.2.0: 工具调用事件 — 以 Markdown 行内联到助手气泡
+              const argsJson = (() => {
+                try { return JSON.stringify(evt.arguments, null, 2) } catch { return String(evt.arguments ?? '') }
+              })()
+              const block = `\n\n🔧 **调用工具** \`${evt.name}\`\n\`\`\`json\n${argsJson}\n\`\`\`\n`
+              setMessages(prev => prev.map(m =>
+                String(m.id) === tempAssistantId ? { ...m, content: m.content + block } : m
+              ))
+            } else if (evt.type === 'tool_result') {
+              // v2.2.0: 工具结果事件
+              const icon = evt.success === false ? '❌' : '✅'
+              const block = `\n${icon} \`${evt.name}\` 结果:\n\`\`\`\n${evt.result ?? ''}\n\`\`\`\n`
+              setMessages(prev => prev.map(m =>
+                String(m.id) === tempAssistantId ? { ...m, content: m.content + block } : m
+              ))
+            } else if (evt.type === 'rag_context') {
+              // v2.2.0: 知识库上下文事件 (Phase 4 发出,前端先占位渲染)
+              const srcList = Array.isArray(evt.sources)
+                ? evt.sources.map((s: any) => `- ${s.title ?? ''}(score: ${s.score ?? '-'})`).join('\n')
+                : ''
+              const block = `\n📚 **知识库引用**\n${srcList}\n`
+              setMessages(prev => prev.map(m =>
+                String(m.id) === tempAssistantId ? { ...m, content: m.content + block } : m
+              ))
+            } else if (evt.type === 'approval_required') {
+              // v2.2.0: 需用户授权的操作 (Phase 5 Browser/CU)
+              const block = `\n⚠️ **需授权操作** \`${evt.tool}\` — 请在确认后继续\n`
+              setMessages(prev => prev.map(m =>
+                String(m.id) === tempAssistantId ? { ...m, content: m.content + block } : m
+              ))
             }
             // type === 'done' 时无需额外操作
           } catch {

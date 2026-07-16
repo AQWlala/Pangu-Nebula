@@ -18,6 +18,12 @@ class Persona(Base):
     max_tokens: Mapped[int] = mapped_column(Integer, default=4096)
     model_provider: Mapped[str | None] = mapped_column(String(64))
     model_name: Mapped[str] = mapped_column(String(64), default="gpt-4")
+    # v2.2.0 能力开关
+    tools_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    rag_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    sandbox_allow_network: Mapped[bool] = mapped_column(Boolean, default=False)
+    terminal_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+    browser_use_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now(), onupdate=datetime.utcnow)
 
@@ -30,6 +36,8 @@ class Conversation(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     persona_id: Mapped[int | None] = mapped_column(ForeignKey("personas.id", ondelete="SET NULL"))
     title: Mapped[str | None] = mapped_column(String(255))
+    # v2.2.0 对话状态: idle/running/error
+    status: Mapped[str] = mapped_column(String(20), default="idle")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now(), onupdate=datetime.utcnow)
 
@@ -45,6 +53,11 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     tokens: Mapped[int] = mapped_column(Integer, default=0)
+    # v2.2.0 工具调用持久化
+    tool_calls: Mapped[str | None] = mapped_column(Text)  # JSON: LLM 返回的工具调用数组
+    tool_call_id: Mapped[str | None] = mapped_column(String(64))
+    tool_name: Mapped[str | None] = mapped_column(String(64))
+    tool_result: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")

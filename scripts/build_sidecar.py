@@ -109,6 +109,21 @@ def build_sidecar() -> int:
         "--hidden-import=yaml",
         "--hidden-import=docx",
         "--hidden-import=pypdf",
+        # v2.2.0 新增 hidden-import (Phase 2-5: 命令/代码/LanceDB KB/Browser+CU)
+        # LanceDB 向量数据库 (PyO3 扩展,依赖 pyarrow Arrow 列式存储)
+        "--hidden-import=lancedb",
+        "--hidden-import=pyarrow",
+        "--hidden-import=pyarrow.dataset",
+        # 终端命令执行 (PTY 跨平台)
+        "--hidden-import=ptyprocess",
+        "--hidden-import=pywinpty",
+        # 文档解析 (PowerPoint)
+        "--hidden-import=pptx",
+        # Computer Use (Pillow 图像 + pyautogui GUI 自动化 + uiautomation Win a11y)
+        "--hidden-import=PIL",
+        "--hidden-import=PIL._tkinter_finder",
+        "--hidden-import=pyautogui",
+        "--hidden-import=uiautomation",
         # 排除不需要的模块 (减小体积)
         "--exclude-module=tkinter",
         "--exclude-module=matplotlib",

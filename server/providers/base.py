@@ -8,6 +8,10 @@ class Message(BaseModel):
     role: str
     # 支持 str (纯文本) 或 list (多模态: [{"type":"text","text":...},{"type":"image_url",...}])
     content: Any = ""
+    # v2.2.0: 工具调用相关 (OpenAI 风格)
+    # assistant 消息携带 tool_calls 数组; role="tool" 消息携带 tool_call_id
+    tool_calls: list[dict] | None = None
+    tool_call_id: str | None = None
 
 
 class ProviderCapability(BaseModel):

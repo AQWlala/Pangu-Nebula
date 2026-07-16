@@ -58,14 +58,27 @@ class OpenAIProtocol(ProtocolBase):
     def _build_payload(
         self, messages: list[Message], model: str, kwargs: dict
     ) -> dict[str, Any]:
+        msgs: list[dict[str, Any]] = []
+        for m in messages:
+            entry: dict[str, Any] = {"role": m.role, "content": m.content}
+            # v2.2.0: 序列化工具调用相关字段
+            if m.tool_calls is not None:
+                entry["tool_calls"] = m.tool_calls
+                # assistant 工具调用消息 content 为空时传 null,兼容严格 provider
+                if entry["content"] == "":
+                    entry["content"] = None
+            if m.tool_call_id is not None:
+                entry["tool_call_id"] = m.tool_call_id
+            msgs.append(entry)
         payload: dict[str, Any] = {
             "model": model or self.default_chat_model,
-            "messages": [
-                {"role": m.role, "content": m.content} for m in messages
-            ],
+            "messages": msgs,
             "stream": True,
         }
         payload.update(kwargs)
+        # v2.2.0: function calling — 携带 tools 时缺省 tool_choice=auto
+        if payload.get("tools") and "tool_choice" not in payload:
+            payload["tool_choice"] = "auto"
         return payload
 
     def _stream_url(self) -> str:
@@ -107,9 +120,12 @@ class OpenAIProtocol(ProtocolBase):
             return None
         choice = choices[0]
         delta = choice.get("delta") or {}
+        # v2.2.0: 解析工具调用增量 (delta.tool_calls)
+        tool_calls = delta.get("tool_calls") or None
         return StreamChunk(
             text=delta.get("content", "") or "",
             finish_reason=choice.get("finish_reason"),
+            tool_calls=tool_calls,
             raw=obj,
         )
 
@@ -182,7 +198,10 @@ class OpenAIProtocol(ProtocolBase):
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     chunk = self._parse_sse_chunk(line)
-                    if chunk is not None and chunk.text:
+                    if chunk is None:
+                        continue
+                    # v2.2.0: 产出文本块 / 工具调用块 / 结束块 (任一非空)
+                    if chunk.text or chunk.tool_calls or chunk.finish_reason:
                         yield chunk
 
     # ---- 嵌入 ----

@@ -52,6 +52,8 @@ from .api.cu import router as cu_router
 from .api.kb import router as kb_router
 from .api.graph import router as graph_router
 from .tools import builtin_tools  # noqa: F401
+from .tools import command_tool, code_tool  # noqa: F401  v2.2.0 Phase 2-3
+from .tools import browser_tools, computer_tools  # noqa: F401  v2.2.0 Phase 5
 
 load_dotenv()
 settings = load_settings()

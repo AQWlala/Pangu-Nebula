@@ -151,6 +151,32 @@ async def approve_document(pending_id: str, request: Request):
         )
         # Don't fail the approval if indexing fails
 
+    # Sync FTS5 full-text index so keyword search uses FTS5 instead of brute-force
+    try:
+        import sqlite3
+        from server.kb.retrieval.hybrid import ensure_fts_table
+
+        db_path = config.meta_db
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(str(db_path)) as conn:
+            ensure_fts_table(conn)
+            # 先删除旧条目（支持重复审批同一文档的更新场景）
+            conn.execute(
+                "DELETE FROM kb_documents_fts WHERE doc_id = ?", (fm.id,)
+            )
+            conn.execute(
+                "INSERT INTO kb_documents_fts (doc_id, title, content, scope) "
+                "VALUES (?, ?, ?, ?)",
+                (fm.id, fm.title, pending["converted_md"], fm.scope),
+            )
+            conn.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"FTS5 sync failed after approval: {e}"
+        )
+        # FTS5 失败不应中断审批流程
+
     return {"success": True, "doc_id": fm.id, "message": "文档已审核通过并保存"}
 
 

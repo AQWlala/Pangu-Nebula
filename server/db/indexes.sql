@@ -224,10 +224,14 @@ CREATE INDEX IF NOT EXISTS idx_acp_messages_created_at ON acp_messages(created_a
 -- ----------------------------------------------------------------------
 -- KB 全文检索虚拟表 (FTS5)
 -- ----------------------------------------------------------------------
+-- 注意：此表在 KB 的 meta.db (kb_root/meta.db) 中创建，由
+-- server/kb/retrieval/hybrid.py 的 ensure_fts_table() 幂等建表，
+-- 文档审批时 (server/api/kb.py approve_document) 同步写入。
+-- doc_id/scope 标记为 UNINDEXED：不参与全文索引但可用于 WHERE 过滤。
 CREATE VIRTUAL TABLE IF NOT EXISTS kb_documents_fts USING fts5(
     doc_id UNINDEXED,
     title,
     content,
-    tags,
+    scope UNINDEXED,
     tokenize = 'unicode61'
 );

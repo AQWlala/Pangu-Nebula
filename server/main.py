@@ -1,4 +1,5 @@
 import os
+import secrets
 import signal
 import sys
 import threading
@@ -93,16 +94,18 @@ app.add_middleware(
 # v2.1.0 Phase 0 — Bearer token auth middleware for Tauri sidecar mode.
 # In pywebview mode (sidecar_token empty), this middleware is a no-op.
 # In tauri mode, all requests must carry "Authorization: Bearer <token>"
-# except for /health/ready (used by Tauri readiness probe) and /shutdown.
+# except for /health and /health/ready (used by Tauri readiness probes).
+# Note: /shutdown is intentionally NOT whitelisted — an unauthenticated
+# process-kill endpoint is a security risk, so it requires a valid token.
 @app.middleware("http")
 async def sidecar_token_auth(request: Request, call_next):
     token = settings.sidecar_token
     # No-op in pywebview mode (no token configured)
     if not token:
         return await call_next(request)
-    # Allow readiness + shutdown probes without token (Tauri polls /health/ready
-    # before frontend has a chance to inject the token).
-    unauthenticated_paths = {"/health/ready", "/health", "/shutdown"}
+    # Allow readiness probes without token (Tauri polls /health/ready before
+    # the frontend has a chance to inject the token).
+    unauthenticated_paths = {"/health/ready", "/health"}
     if request.url.path in unauthenticated_paths:
         return await call_next(request)
     # Allow CORS preflight (OPTIONS requests don't carry Authorization header).
@@ -115,7 +118,7 @@ async def sidecar_token_auth(request: Request, call_next):
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         provided = auth_header[7:]
-        if provided == token:
+        if secrets.compare_digest(provided, token):
             return await call_next(request)
     # Reject all other requests without valid token
     return JSONResponse(
@@ -196,8 +199,8 @@ async def health_ready(request: Request):
 
 
 # v2.1.0 Phase 0 — Graceful shutdown endpoint (called by Tauri Supervisor
-# on window close / app quit). No Bearer token required (whitelisted in
-# sidecar_token_auth middleware) so Tauri can always reach it.
+# on window close / app quit). Requires a valid Bearer token — Tauri must
+# send the sidecar token in the Authorization header when calling /shutdown.
 #
 # Flow: respond 200 immediately → schedule SIGTERM delivery after a short
 # delay so uvicorn finishes streaming the response → uvicorn lifespan

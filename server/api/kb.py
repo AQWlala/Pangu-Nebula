@@ -100,19 +100,28 @@ async def reject_document(pending_id: str):
 
 
 @router.get("/documents")
-async def list_documents():
+async def list_documents(scope: str | None = None):
     config = _get_config()
     repo = DocumentRepo(documents_dir=config.documents_dir)
-    return {"documents": repo.list_all()}
+    doc_ids = repo.list_all()
+    docs = []
+    for doc_id in doc_ids:
+        fm, _ = repo.read(doc_id)
+        if scope and fm.scope != scope:
+            continue
+        docs.append({"id": fm.id, "title": fm.title, "type": fm.type, "scope": fm.scope})
+    return {"documents": docs}
 
 
 @router.get("/documents/{doc_id}")
-async def get_document(doc_id: str):
+async def get_document(doc_id: str, scope: str | None = None):
     config = _get_config()
     repo = DocumentRepo(documents_dir=config.documents_dir)
     if not repo.exists(doc_id):
         raise HTTPException(status_code=404, detail="文档不存在")
     fm, body = repo.read(doc_id)
+    if scope and fm.scope != scope:
+        raise HTTPException(status_code=404, detail="文档不存在")
     return {
         "id": fm.id, "title": fm.title, "type": fm.type,
         "scope": fm.scope, "confidence": fm.confidence,
@@ -121,11 +130,15 @@ async def get_document(doc_id: str):
 
 
 @router.delete("/documents/{doc_id}")
-async def delete_document(doc_id: str):
+async def delete_document(doc_id: str, scope: str | None = None):
     config = _get_config()
     repo = DocumentRepo(documents_dir=config.documents_dir)
     if not repo.exists(doc_id):
         raise HTTPException(status_code=404, detail="文档不存在")
+    if scope:
+        fm, _ = repo.read(doc_id)
+        if fm.scope != scope:
+            raise HTTPException(status_code=404, detail="文档不存在")
     repo.delete(doc_id)
     return {"success": True, "message": "文档已删除"}
 

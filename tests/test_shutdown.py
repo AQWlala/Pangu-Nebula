@@ -4,7 +4,8 @@ Tests for:
 - POST /shutdown endpoint (graceful sidecar shutdown)
   * Returns 200 with {"ok": True, "data": {"shutting_down": True}}
   * Schedules SIGTERM delivery via background daemon thread
-  * Whitelisted from Bearer token auth (Tauri Supervisor always reaches it)
+  * Requires a valid Bearer token (security hardening — previously whitelisted,
+    which allowed an unauthenticated process kill)
 
 Safety: the safe_kill fixture mocks os.kill and waits 0.3s (real time.sleep)
 INSIDE the patch context for the background thread to call the mock. This
@@ -72,11 +73,21 @@ def test_shutdown_schedules_sigterm(test_client: TestClient, safe_kill):
     assert call_args[0][1] == signal.SIGTERM
 
 
-def test_shutdown_bypasses_auth(test_client: TestClient, monkeypatch, safe_kill):
-    """ /shutdown is whitelisted from Bearer token auth so Tauri Supervisor
-    can always reach it even after the frontend has unloaded"""
+def test_shutdown_requires_auth(test_client: TestClient, monkeypatch, safe_kill):
+    """ /shutdown requires a valid Bearer token. Previously it was whitelisted
+    from Bearer token auth, which allowed an unauthenticated process kill — a
+    security risk. Verify it is now rejected without a token and accepted with
+    a valid one."""
     monkeypatch.setattr(settings, "sidecar_token", "secret-token-123", raising=False)
 
+    # Without a Bearer token, /shutdown must be rejected (security fix).
     response = test_client.post("/shutdown")
+    assert response.status_code == 401
+
+    # With a valid Bearer token, /shutdown proceeds normally.
+    response = test_client.post(
+        "/shutdown",
+        headers={"Authorization": "Bearer secret-token-123"},
+    )
     assert response.status_code == 200
     assert response.json()["ok"] is True

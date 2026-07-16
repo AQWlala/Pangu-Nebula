@@ -6,14 +6,23 @@ Rust 端的 browser_use 模块尚未编译,此处提供 Python mock 作为功能
 
 切换机制:
 - 检测到 `browser_use` PyO3 模块时,标记 HAS_RUST=True
-- 调用时若 HAS_RUST,走真实 Rust 调用路径
-- 否则返回 mock 数据,字段结构与未来 Rust 返回值保持一致
+- cdp_connect / aria_listen: 调用时若 HAS_RUST,走真实 Rust 调用路径;
+  否则返回 mock 数据,字段结构与未来 Rust 返回值保持一致
+- get_status: 仅查询并汇报 HAS_RUST 状态(无 Rust/mock 数据分支),
+  返回 rust_available/rust_version/skeleton/active_sessions/mock 字段
+- cdp_close: 纯 Python 会话管理(从内存字典删除会话),不检查 HAS_RUST,
+  无 Rust 对应实现
+- launch: 检查 HAS_RUST,但 launch_chromium 尚未通过 PyO3 暴露,
+  因此当前始终返回 mock ws_url(待 Rust 端补齐后启用真实调用)
 
 模块映射:
 - Rust: rust/browser_use/src/lib.rs::cdp_connect
 - Mock: BrowserUseRust.cdp_connect
 - Rust: rust/browser_use/src/lib.rs::aria_listen
 - Mock: BrowserUseRust.aria_listen
+- (无 Rust 对应): BrowserUseRust.cdp_close — Python 会话管理
+- (待 PyO3 暴露): BrowserUseRust.launch — 启动 Chromium
+- (无 Rust 对应): BrowserUseRust.get_status — Python 状态查询
 """
 
 from __future__ import annotations
@@ -38,9 +47,11 @@ class BrowserUseRust:
 
     提供与未来 Rust 实现一致的接口:
     - cdp_connect(url): 连接到 CDP websocket
+    - cdp_close(session_id): 关闭 CDP 会话(纯 Python 会话管理,无 Rust 对应)
     - aria_listen(page_id): 监听 ARIA 树
-    - launch(headless, port): 启动 Chromium
-    - get_status(): 获取模块状态
+    - launch(headless, port): 启动 Chromium(launch_chromium 尚未通过 PyO3 暴露,
+      当前返回 mock ws_url)
+    - get_status(): 获取模块状态(纯 Python 状态查询,无 Rust 对应)
 
     所有方法均返回 {"ok": bool, "data": ..., "error": ...} 统一格式,
     与 server/services/browser_service.py 风格保持一致。
@@ -180,6 +191,10 @@ class BrowserUseRust:
 
     async def launch(self, headless: bool = True, port: int = 9222) -> dict:
         """启动 Chromium 子进程并返回 CDP websocket URL
+
+        注意: 即使 HAS_RUST=True,launch_chromium 尚未通过 PyO3 暴露,
+        因此当前始终返回 mock ws_url。待 Rust 端补齐 launch_chromium 的
+        PyO3 绑定后,才会走真实 Rust 调用路径。
 
         参数:
         - headless: 是否无头模式

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import re
+from collections.abc import Iterator
 
 _TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
@@ -78,3 +79,37 @@ class AuditLogger:
             return []
         with open(log_file, "r", encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()]
+
+    def iter_audit_entries(self, task_id: str, limit: int = 100) -> Iterator[dict]:
+        """流式迭代审计日志条目,从末尾开始倒序。
+
+        v2.2.1 P2: 用生成器避免一次性加载整个文件到内存,防止大日志文件 OOM。
+        只读取文件末尾约 ``limit * 200`` 字节(按每行平均 200 字节估算),
+        跳过无效 JSON 行,按倒序产出至多 ``limit`` 条。
+
+        与 ``get_task_logs`` 的区别:后者返回全量 list(正序),用于完整回放;
+        本方法面向「最近 N 条」的预览/分页场景,内存占用与 limit 成正比,
+        而非与文件大小成正比。
+        """
+        _validate_task_id(task_id)
+        log_file = self.log_dir / task_id / "audit.jsonl"
+        if not log_file.exists():
+            return
+        file_size = log_file.stat().st_size
+        # 读取末尾 limit*200 字节(假设每行平均 200 字节)
+        read_size = min(file_size, limit * 200)
+        with log_file.open("r", encoding="utf-8") as f:
+            f.seek(file_size - read_size)
+            lines = f.readlines()
+        count = 0
+        for line in reversed(lines):
+            if count >= limit:
+                return
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            count += 1

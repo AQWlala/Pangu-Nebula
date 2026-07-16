@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
+import asyncio
 import json
+import logging
 
 from sqlalchemy import select
 
@@ -7,6 +9,8 @@ from ..db.engine import async_session
 from ..db.orm import Memory
 from ..providers.base import Message
 from ..providers.registry import get_provider
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -45,15 +49,24 @@ class BlackHoleEngine:
 
     async def check_and_compact(self, persona_id: int) -> list[CompressionResult]:
         results: list[CompressionResult] = []
+        # v2.2.1 P2-4: 合并 5 次 layer 查询为 1 次单查询,消除 N+1
+        # 原逻辑按 layer 逐个开 session 查询并统计未压缩记忆数。
+        # 改为一次查询拉取 (layer, tags) 投影,在 Python 内按 layer 分组计数,
+        # 既保留 "compressed not in tags" 的过滤语义(跨 DB 兼容),又将 5 次
+        # 数据库往返压缩为 1 次。
+        async with async_session() as session:
+            stmt = select(Memory.layer, Memory.tags).where(
+                Memory.persona_id == persona_id,
+                Memory.layer.in_(["L0", "L1", "L2", "L3", "L4"]),
+            )
+            rows = (await session.execute(stmt)).all()
+            layer_counts: dict[str, int] = {l: 0 for l in ["L0", "L1", "L2", "L3", "L4"]}
+            for layer, tags in rows:
+                if "compressed" not in (tags or []):
+                    layer_counts[layer] = layer_counts.get(layer, 0) + 1
         for layer in ["L0", "L1", "L2", "L3", "L4"]:
             threshold = self.COMPACTION_THRESHOLDS[layer]
-            async with async_session() as session:
-                stmt = select(Memory).where(
-                    Memory.persona_id == persona_id,
-                    Memory.layer == layer,
-                )
-                rows = (await session.execute(stmt)).scalars().all()
-                count = sum(1 for m in rows if "compressed" not in (m.tags or []))
+            count = layer_counts.get(layer, 0)
             if count > threshold:
                 result = await self.compact_layer(persona_id, layer)
                 results.append(result)
@@ -110,14 +123,25 @@ class BlackHoleEngine:
         created: list[tuple[dict, list[int]]] = []
         compressed_ids: list[int] = []
 
-        for group_memories in groups.values():
-            new_mem = await self._compact_group(
-                group_memories, source_layer, target_layer, persona_id
-            )
-            if new_mem is None:
+        # v2.2.1 P2-5: 并发执行 _compact_group — K 个分组不再串行等待 LLM
+        # _compact_group 仅读取入参(memories/source_layer/target_layer/persona_id),
+        # 不修改共享状态;返回值由下方顺序遍历写入 created/compressed_ids,无竞争。
+        # return_exceptions=True: 单组失败不阻塞其他组,异常在此处隔离记录。
+        group_keys = list(groups.keys())
+        group_items = list(groups.values())
+        tasks = [
+            self._compact_group(gm, source_layer, target_layer, persona_id)
+            for gm in group_items
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for group_key, group_memories, result in zip(group_keys, group_items, results):
+            if isinstance(result, Exception):
+                logger.warning(f"compact group {group_key} failed: {result}")
+                continue
+            if result is None:
                 continue
             ids = [m["id"] for m in group_memories]
-            created.append((new_mem, ids))
+            created.append((result, ids))
             compressed_ids.extend(ids)
 
         if not created:

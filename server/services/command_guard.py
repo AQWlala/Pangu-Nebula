@@ -20,6 +20,26 @@
 from __future__ import annotations
 
 import re
+import unicodedata
+
+
+# v2.2.1 P3: 零宽字符集合 — NFKC 不会规范化这些, 需显式移除
+# 防止攻击者在危险关键字中插入零宽字符绕过黑名单 (如 "r\u200bm -rf /")
+_ZERO_WIDTH_CHARS = ("\u200b", "\u200c", "\u200d", "\ufeff")
+
+
+def _normalize_command(command: str) -> str:
+    """v2.2.1 P3: Unicode 规范化 — NFKC + 零宽字符移除
+
+    - NFKC: 全角→半角 (ｒｍ → rm), 兼容字符→标准字符
+    - 移除零宽字符: 防止 "r\\u200bm" 等混淆绕过
+
+    用于 check_command 入口, 在黑名单匹配前对输入做规范化。
+    """
+    normalized = unicodedata.normalize("NFKC", command)
+    for zw in _ZERO_WIDTH_CHARS:
+        normalized = normalized.replace(zw, "")
+    return normalized
 
 
 # 危险命令模式列表 (pattern, description)
@@ -93,13 +113,18 @@ _compiled_patterns = [
 def check_command(command: str) -> tuple[bool, str]:
     """检查命令是否安全
 
+    v2.2.1 P3: 入口做 NFKC 规范化 + 零宽字符移除,
+    防止 Unicode 同形字符/零宽字符绕过黑名单。
+
     Returns:
         (safe, reason): safe=True 时 reason 为空;
         safe=False 时 reason 为拦截原因。
     """
     if not command or not command.strip():
         return False, "空命令"
+    # v2.2.1 P3: NFKC 规范化 (全角→半角) + 移除零宽字符
+    normalized = _normalize_command(command)
     for pattern, desc in _compiled_patterns:
-        if pattern.search(command):
+        if pattern.search(normalized):
             return False, f"危险命令被拦截: {desc}"
     return True, ""

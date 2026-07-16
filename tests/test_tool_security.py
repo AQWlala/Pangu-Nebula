@@ -504,7 +504,9 @@ class TestComputerTypeTextSafety:
         with patch("server.tools.computer_tools._check_dependencies",
                    return_value=(True, "")):
             mock_pa = MagicMock()
-            with patch.dict("sys.modules", {"pyautogui": mock_pa}):
+            # v2.2.1 P3-3: CJK 文本需要 pyperclip,mock 它
+            mock_pyperclip = MagicMock()
+            with patch.dict("sys.modules", {"pyautogui": mock_pa, "pyperclip": mock_pyperclip}):
                 result = await tool.execute(text=text)
                 assert result.success is True, f"安全文本被误拦: {text} → {result.error}"
 

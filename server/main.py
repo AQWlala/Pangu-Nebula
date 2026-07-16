@@ -120,12 +120,24 @@ app = FastAPI(lifespan=lifespan, debug=settings.debug)
 cors_origins = _parse_cors_origins(settings.cors_origins, settings.debug)
 allow_credentials = "*" not in cors_origins and not settings.debug
 
+# v2.2.1 P2: CORS 收敛 — 方法/头收敛到实际使用的集合
+# origins 保持 * (Tauri/pywebview 模式下 origin 不固定,debug 模式回退到 *)
+# 允许的方法覆盖 RESTful CRUD + OPTIONS 预检
+_CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+# 允许的头覆盖前端实际使用的请求头 (Auth/Content/Ajax/Sidecar 自定义)
+_CORS_ALLOW_HEADERS = [
+    "Authorization",
+    "Content-Type",
+    "Accept",
+    "X-Requested-With",
+    "X-Sidecar-Token",
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=allow_credentials,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=_CORS_ALLOW_METHODS,
+    allow_headers=_CORS_ALLOW_HEADERS,
 )
 
 

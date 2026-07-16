@@ -10,10 +10,26 @@ v2.2.0 给 personas/conversations/messages 三张表新增了列,这里在启动
 from __future__ import annotations
 
 import logging
+import re
 
 from sqlalchemy import inspect, text
 
 logger = logging.getLogger(__name__)
+
+# v2.2.1 P2: SQL 标识符(表名/列名)校验 — 防 SQL 注入
+# ALTER TABLE 的表名/列名不能用占位符,改为严格白名单校验。
+_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _validate_identifier(name: str) -> str:
+    """校验 SQL 标识符(表名/列名)只含安全字符。
+
+    column_def 包含类型与默认值(如 "BOOLEAN DEFAULT 1"),无法用占位符,
+    因此仅校验表名/列名标识符,拒绝任何含空格/引号/分号/连字符等的注入向量。
+    """
+    if not isinstance(name, str) or not _IDENTIFIER_PATTERN.match(name):
+        raise ValueError(f"invalid SQL identifier: {name!r}")
+    return name
 
 # (表名, 列名, ADD COLUMN 用的列定义 SQL)
 # 列定义须与 orm.py 中的类型/默认值保持一致
@@ -54,7 +70,9 @@ def run_lightweight_migrations(conn) -> None:
             continue
         if column_name in cols_of(table_name):
             continue
-        stmt = f'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" {column_def}'
+        table = _validate_identifier(table_name)
+        column = _validate_identifier(column_name)
+        stmt = f'ALTER TABLE "{table}" ADD COLUMN "{column}" {column_def}'
         logger.info("schema 迁移: %s", stmt)
         conn.execute(text(stmt))
         cols_of(table_name).add(column_name)

@@ -15,7 +15,20 @@ from ..config import load_settings
 settings = load_settings()
 database_url = settings.database_url
 
-engine = create_async_engine(database_url)
+# v2.2.1 P2: 显式配置连接池 — 防止 stale connection + 控制并发
+# SQLite (默认 aiosqlite): 仅加 pool_pre_ping (SQLite 用 SingletonThreadPool,
+#   pool_size/max_overflow 会被 SQLAlchemy 拒绝; pool_recycle 无意义因 SQLite
+#   无服务端连接超时)
+# PostgreSQL/MySQL: 完整连接池配置 (pool_size/max_overflow/pool_recycle)
+_is_sqlite = database_url.startswith("sqlite")
+_engine_kwargs: dict = {"pool_pre_ping": True}
+if not _is_sqlite:
+    _engine_kwargs.update({
+        "pool_size": 10,       # 连接池大小
+        "max_overflow": 20,    # 溢出连接数
+        "pool_recycle": 1800,  # 30 分钟回收,防止长连接断网
+    })
+engine = create_async_engine(database_url, **_engine_kwargs)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 

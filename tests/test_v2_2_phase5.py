@@ -160,7 +160,8 @@ class TestBrowserToolsExecution:
 
             result = await tool.execute(selector="input", text="hello")
             assert result.success is True
-            assert "hello" in result.output
+            # v2.2.1 P2-9: browser_type 日志脱敏后输出 hell* 而非 hello
+            assert "hell" in result.output
 
     @pytest.mark.asyncio
     async def test_browser_type_long_text_truncated(self):
@@ -180,7 +181,8 @@ class TestBrowserToolsExecution:
 
             result = await tool.execute(selector="input", text=long_text)
             assert result.success is True
-            assert "..." in result.output
+            # v2.2.1 P2-9: 脱敏后用 * 替代,不再有 ... 截断
+            assert "*" in result.output
 
 
 # ============================================================

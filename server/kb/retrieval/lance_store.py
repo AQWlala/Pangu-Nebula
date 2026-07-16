@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
 import re
 from pathlib import Path
 
@@ -22,6 +24,8 @@ import numpy as np
 
 # 复用 ChromaVectorStore 的本地哈希嵌入,保证两个存储后端向量空间一致
 from .vectorstore import _LocalHashEmbedding
+
+logger = logging.getLogger(__name__)
 
 
 # ---- F4 安全修复: LanceDB SQL 注入防护辅助函数 ----
@@ -77,6 +81,55 @@ def _build_scope_filter(scope: str) -> str:
     """构造 scope = '...' 安全过滤条件"""
     _validate_scope(scope)
     return f"scope = '{_escape_sql_literal(scope)}'"
+
+
+# ---- v2.2.1 P2-6: tags JSON 序列化辅助函数 ----
+# 旧格式: 逗号分隔字符串 "a,b,c" — 含逗号的 tag 会被错误切分
+# 新格式: JSON 数组 '["a,b","c"]' — 完整保留每个 tag
+# 读侧 _deserialize_tags 自动兼容两种格式,保证平滑升级
+
+def _serialize_tags(tags) -> str:
+    """将 tags 列表序列化为 JSON 字符串写入存储
+
+    None / 空列表统一序列化为 "[]",保证列内非空,便于 where 过滤。
+    """
+    if not tags:
+        return "[]"
+    if not isinstance(tags, (list, tuple)):
+        # 防御性: 上游误传字符串时不要抛异常, 转成单元素列表
+        tags = [tags]
+    return json.dumps(list(tags), ensure_ascii=False)
+
+
+def _deserialize_tags(raw) -> list:
+    """从存储读出 tags 字符串,反序列化为列表
+
+    向后兼容:
+    - 新格式 JSON 数组 -> json.loads
+    - 旧格式逗号分隔 -> split(",")
+    - None/空 -> []
+    解析失败时降级为 split(","),避免单条坏数据阻塞整个查询。
+    """
+    if not raw:
+        return []
+    if not isinstance(raw, str):
+        # LanceDB/Arrow 可能返回非字符串类型(list/object),直接转 list
+        if isinstance(raw, (list, tuple)):
+            return list(raw)
+        return []
+    s = raw.strip()
+    if not s:
+        return []
+    # 优先尝试 JSON(新格式)
+    if s.startswith("["):
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, list):
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass  # 降级到旧格式
+    # 旧格式兼容: 逗号分隔
+    return [t for t in s.split(",") if t]
 
 
 class LanceVectorStore:
@@ -136,12 +189,27 @@ class LanceVectorStore:
         self._table = self._db.create_table("kb_chunks", data=table_data)
 
     def close(self):
-        """释放 LanceDB 连接引用。多次调用安全。"""
-        try:
+        """释放 LanceDB 连接引用。多次调用安全(幂等)。
+
+        v2.2.1 P2: 尝试调用 LanceDB table/db 的 close 方法释放底层
+        文件句柄与内存映射,而非仅置 None。
+        """
+        if self._table is not None:
+            try:
+                close_fn = getattr(self._table, "close", None)
+                if callable(close_fn):
+                    close_fn()
+            except Exception:
+                pass
             self._table = None
+        if self._db is not None:
+            try:
+                close_fn = getattr(self._db, "close", None)
+                if callable(close_fn):
+                    close_fn()
+            except Exception:
+                pass
             self._db = None
-        except Exception:
-            pass
 
     def __enter__(self):
         return self
@@ -169,8 +237,10 @@ class LanceVectorStore:
             except (ValueError, TypeError):
                 # 非法 doc_id 直接跳过(不写入也不删除),避免触发恶意 SQL
                 continue
-            except Exception:
-                pass
+            except Exception as exc:
+                # v2.2.1 P2: 删除旧记录失败不再静默 — 记录日志,继续处理其他 doc_id
+                logger.warning(f"upsert delete doc_id={doc_id} failed: {exc}")
+                continue
 
         # 添加新记录
         import pyarrow as pa  # type: ignore
@@ -190,7 +260,18 @@ class LanceVectorStore:
                 "vector": vec.tolist(),
             })
         table_data = pa.Table.from_pylist(rows)
-        self._table.add(table_data)
+        # v2.2.1 P2: upsert add 失败不再静默 — 记录日志 + 1 次重试
+        # 防止瞬时故障 (如表锁/IO 抖动) 导致数据丢失
+        try:
+            self._table.add(table_data)
+        except Exception as exc:
+            logger.warning(f"upsert add failed (attempt 1): {exc}")
+            # 重试 1 次 — table_data 已构造好,直接复用
+            try:
+                self._table.add(table_data)
+            except Exception as retry_exc:
+                logger.error(f"upsert add retry failed: {retry_exc}")
+                raise
 
     def query(self, query_text: str, scope: str, top_k: int = 10) -> list[dict]:
         """向量检索 + scope 过滤。返回格式与 ChromaVectorStore.query 一致。"""
@@ -221,7 +302,7 @@ class LanceVectorStore:
             "doc_id": r.get("doc_id", ""),
             "text": r.get("text", ""),
             "scope": r.get("scope", ""),
-            "tags": r.get("tags", "").split(",") if r.get("tags") else [],
+            "tags": _deserialize_tags(r.get("tags")),
             "score": float(r.get("_distance", 0.0)),  # LanceDB 返回 _distance(越小越相似)
         } for r in results]
 

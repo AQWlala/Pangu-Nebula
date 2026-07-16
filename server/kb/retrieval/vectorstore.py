@@ -2,7 +2,9 @@
 """ChromaDB 嵌入式向量存储"""
 from __future__ import annotations
 import hashlib
+import json
 import re
+from functools import lru_cache
 from pathlib import Path
 import numpy as np
 
@@ -23,17 +25,29 @@ class _LocalHashEmbedding:
         tokens = re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]", text.lower())
         return tokens
 
-    def _embed_one(self, text: str) -> np.ndarray:
-        vec = np.zeros(self.dim, dtype=np.float32)
-        for token in self._tokenize(text):
+    @staticmethod
+    @lru_cache(maxsize=1024)
+    def _embed_cached(text: str, dim: int) -> tuple[float, ...]:
+        """v2.2.1 P2: LRU 缓存 embedding — 相同文本不重复计算 MD5/向量
+
+        返回 tuple 而非 np.ndarray/list 因为 tuple 不可变,避免调用方误修改
+        缓存内容。lru_cache 要求参数可哈希 (str/int 可哈希)。
+        tokenization 逻辑与 _tokenize 一致,内联以避免静态方法访问 self。
+        """
+        vec = np.zeros(dim, dtype=np.float32)
+        for token in re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]", text.lower()):
             h = hashlib.md5(token.encode("utf-8")).digest()
-            idx = int.from_bytes(h[:4], "little") % self.dim
+            idx = int.from_bytes(h[:4], "little") % dim
             sign = 1.0 if (h[4] & 1) == 0 else -1.0
             vec[idx] += sign
         norm = np.linalg.norm(vec)
         if norm > 0:
             vec = vec / norm
-        return vec
+        return tuple(vec.tolist())
+
+    def _embed_one(self, text: str) -> np.ndarray:
+        # v2.2.1 P2: 走 LRU 缓存,相同文本不重复计算 MD5/向量
+        return np.array(_LocalHashEmbedding._embed_cached(text, self.dim), dtype=np.float32)
 
     def __call__(self, input):
         return [self._embed_one(t) for t in input]
@@ -57,6 +71,55 @@ class _LocalHashEmbedding:
 
     def supported_spaces(self):
         return ["cosine", "l2", "ip"]
+
+
+# ---- v2.2.1 P2-6: tags JSON 序列化辅助函数 ----
+# 旧格式: 逗号分隔字符串 "a,b,c" — 含逗号的 tag 会被错误切分
+# 新格式: JSON 数组 '["a,b","c"]' — 完整保留每个 tag
+# 读侧 _deserialize_tags 自动兼容两种格式,保证平滑升级
+
+def _serialize_tags(tags) -> str:
+    """将 tags 列表序列化为 JSON 字符串写入存储
+
+    None / 空列表统一序列化为 "[]",保证列内非空,便于 where 过滤。
+    """
+    if not tags:
+        return "[]"
+    if not isinstance(tags, (list, tuple)):
+        # 防御性: 上游误传字符串时不要抛异常, 转成单元素列表
+        tags = [tags]
+    return json.dumps(list(tags), ensure_ascii=False)
+
+
+def _deserialize_tags(raw) -> list:
+    """从存储读出 tags 字符串,反序列化为列表
+
+    向后兼容:
+    - 新格式 JSON 数组 -> json.loads
+    - 旧格式逗号分隔 -> split(",")
+    - None/空 -> []
+    解析失败时降级为 split(","),避免单条坏数据阻塞整个查询。
+    """
+    if not raw:
+        return []
+    if not isinstance(raw, str):
+        # Chroma metadata 可能返回非字符串类型,直接转 list
+        if isinstance(raw, (list, tuple)):
+            return list(raw)
+        return []
+    s = raw.strip()
+    if not s:
+        return []
+    # 优先尝试 JSON(新格式)
+    if s.startswith("["):
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, list):
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass  # 降级到旧格式
+    # 旧格式兼容: 逗号分隔
+    return [t for t in s.split(",") if t]
 
 
 class ChromaVectorStore:
@@ -111,7 +174,7 @@ class ChromaVectorStore:
         metadatas = [{
             "doc_id": c["doc_id"],
             "scope": c.get("scope", "private"),
-            "tags": ",".join(c.get("tags", [])),
+            "tags": _serialize_tags(c.get("tags", [])),
             "chunk_idx": c.get("chunk_idx", 0),
             "section": c.get("section", ""),
         } for c in chunks]
@@ -130,7 +193,7 @@ class ChromaVectorStore:
             "doc_id": results["metadatas"][0][i].get("doc_id", ""),
             "text": results["documents"][0][i],
             "scope": results["metadatas"][0][i].get("scope", ""),
-            "tags": results["metadatas"][0][i].get("tags", "").split(",") if results["metadatas"][0][i].get("tags") else [],
+            "tags": _deserialize_tags(results["metadatas"][0][i].get("tags")),
             "score": 1 - results["distances"][0][i] if "distances" in results else 0.0,
         } for i in range(len(results["ids"][0]))]
 

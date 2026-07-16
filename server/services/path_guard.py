@@ -17,6 +17,7 @@ LLM 可读取 ~/.ssh/id_rsa / .env / /etc/passwd 等敏感文件。
 from __future__ import annotations
 
 import os
+import unicodedata
 from pathlib import Path
 
 
@@ -130,6 +131,9 @@ class PathGuard:
     def validate(self, path: str, write: bool = False) -> tuple[bool, str]:
         """校验路径是否允许访问
 
+        v2.2.1 P3: 入口做 NFKC 规范化, 防止 Unicode 同形字符绕过黑名单
+        (如全角 ".ｅｎｖ" 规范化为 ".env" 后命中黑名单)。
+
         Args:
             path: 待校验路径 (绝对或相对)
             write: 是否为写操作; True 时额外拒绝系统目录
@@ -137,6 +141,11 @@ class PathGuard:
         Returns:
             (allowed, reason)。allowed=True 时 reason 为 "允许访问"。
         """
+        # 0. v2.2.1 P3: NFKC 规范化路径字符串
+        # 全角字符→半角 (ｅｎｖ → env), 兼容字符→标准字符
+        # 在 resolve 前规范化, 使后续黑名单/白名单匹配基于规范形式
+        if path:
+            path = unicodedata.normalize("NFKC", path)
         # 1. resolve 解析软链接与相对路径, 得到真实绝对路径
         try:
             resolved = Path(path).resolve()

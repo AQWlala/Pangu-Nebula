@@ -194,9 +194,35 @@ class ComputerTypeTextTool(BaseTool):
             return ToolResult(success=False, output="", error=reason)
 
         try:
-            import pyautogui  # type: ignore
+            import pyautogui as pa  # type: ignore
 
-            pyautogui.typewrite(text, interval=interval)
+            # v2.2.1 P3: CJK 输入支持 — pyautogui.typewrite 仅支持 ASCII,
+            # 非 ASCII 字符(中/日/韩等)需通过剪贴板粘贴
+            has_non_ascii = any(ord(c) > 127 for c in text)
+
+            if has_non_ascii:
+                # CJK 字符用剪贴板粘贴
+                try:
+                    import pyperclip  # type: ignore
+                except ImportError:
+                    return ToolResult(
+                        success=False,
+                        output="",
+                        error="pyperclip 未安装,无法输入 CJK 字符。请运行 pip install pyperclip",
+                    )
+                pyperclip.copy(text)
+                import sys
+                if sys.platform == "darwin":
+                    pa.hotkey("command", "v")
+                else:
+                    pa.hotkey("ctrl", "v")
+                return ToolResult(
+                    success=True,
+                    output=f"已通过剪贴板输入文本 (含 CJK, {len(text)} 字符)",
+                )
+
+            # ASCII 字符直接 typewrite
+            pa.typewrite(text, interval=interval)
             return ToolResult(
                 success=True,
                 output=f"已输入文本: {text[:50]}{'...' if len(text) > 50 else ''}",
@@ -249,24 +275,38 @@ class ComputerGetA11yTreeTool(BaseTool):
 
     @staticmethod
     def _walk_a11y(control, depth: int, max_depth: int) -> dict:
-        """递归遍历无障碍树,返回 dict 结构。"""
-        import uiautomation as ua  # type: ignore
+        """v2.2.1 P2: 迭代式遍历无障碍树,用栈替代递归,防止深层 UI 树栈溢出。
 
-        node = {
+        返回结构与原递归实现一致: 嵌套 dict 树,节点含
+        name/control_type/class_name/depth/children (仅当有子节点时)。
+        """
+        # 根节点
+        root_node = {
             "name": control.Name or "",
             "control_type": control.ControlTypeName if hasattr(control, "ControlTypeName") else "",
-            "class_name": control.ClassName if hasattr(control, "ClassName") else "",
+            "class_name": control.ClassName if hasattr(control, "ControlTypeName") else "",
             "depth": depth,
         }
-        if depth < max_depth:
-            children = []
+        # 栈元素: (control, parent_node, node_depth) — 用栈替代递归
+        stack: list[tuple] = [(control, root_node, depth)]
+        while stack:
+            ctrl, node, cur_depth = stack.pop()
+            if cur_depth >= max_depth:
+                continue
             try:
-                for child in control.GetChildren():
-                    children.append(
-                        ComputerGetA11yTreeTool._walk_a11y(child, depth + 1, max_depth)
-                    )
+                child_list = list(ctrl.GetChildren())
             except Exception:
-                pass
+                child_list = []
+            children = []
+            for child in child_list:
+                child_node = {
+                    "name": child.Name or "",
+                    "control_type": child.ControlTypeName if hasattr(child, "ControlTypeName") else "",
+                    "class_name": child.ClassName if hasattr(child, "ControlTypeName") else "",
+                    "depth": cur_depth + 1,
+                }
+                children.append(child_node)
+                stack.append((child, child_node, cur_depth + 1))
             if children:
                 node["children"] = children
-        return node
+        return root_node

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -28,23 +29,53 @@ logger = logging.getLogger(__name__)
 
 
 def _chunk_text(text: str, chunk_size: int = 512, overlap: int = 50) -> list[str]:
-    """固定长度切片 + 重叠。
+    """v2.2.1 P2: 近似 token 计数切片 + 重叠
 
-    简单实现:按字符数切片,CJK 字符按单字计算。
-    生产环境可替换为语义切片(基于句子/段落边界)。
+    CJK 字符算 1 token,英文单词算 1 token,数字串算 1 token,空格/标点不计数。
+    比 pure 字符计数更接近真实 token 数,embedding 质量更稳定。
+    用 ``re.finditer`` 记录每个 token 的字符位置,切片原文 (含标点) 避免信息丢失。
+
+    兜底: 当 token 数少但文本很长 (如单字符重复 "aaa...a" 或纯标点) 时,
+    回退到字符切片,保证不返回超长单 chunk。
     """
     if not text:
         return []
-    if len(text) <= chunk_size:
-        return [text]
-    chunks: list[str] = []
+    # 近似 token 化: CJK 字符逐个,英文按单词,数字按连续数字
+    # CJK 范围: 基本汉字 U+4E00-U+9FFF, 平假名 U+3040-U+309F, 片假名 U+30A0-U+30FF
+    token_spans = [
+        (m.start(), m.end())
+        for m in re.finditer(
+            r"[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]|[a-zA-Z]+|[0-9]+", text
+        )
+    ]
+    # 兜底: 无 token (纯标点/空白) 或 token 数 <= chunk_size 但文本超长
+    # (如 "aaa...a" 单 token 超长) 时, 按字符切片, 保证不返回超长单 chunk
+    if not token_spans or len(token_spans) <= chunk_size:
+        if len(text) <= chunk_size:
+            return [text]
+        # 字符切片兜底 (原 v2.2.0 逻辑, 用于无/少 token 的超长文本)
+        chunks: list[str] = []
+        start = 0
+        while start < len(text):
+            end = start + chunk_size
+            chunks.append(text[start:end])
+            start = end - overlap
+            if start >= len(text):
+                break
+        return chunks
+    # token 计数切片: 用 token 位置切片原文 (含标点)
+    chunks = []
     start = 0
-    while start < len(text):
+    while start < len(token_spans):
         end = start + chunk_size
-        chunks.append(text[start:end])
-        start = end - overlap
-        if start >= len(text):
+        # 切片原文: 从第 start 个 token 开始到第 (end-1) 个 token 结束
+        char_start = token_spans[start][0]
+        last_idx = min(end, len(token_spans)) - 1
+        char_end = token_spans[last_idx][1]
+        chunks.append(text[char_start:char_end])
+        if end >= len(token_spans):
             break
+        start = end - overlap
     return chunks
 
 

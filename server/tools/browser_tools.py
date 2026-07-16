@@ -15,6 +15,19 @@ from __future__ import annotations
 from .registry import BaseTool, ToolResult, register_tool
 
 
+def _mask_sensitive(text: str, visible: int = 4) -> str:
+    """v2.2.1 P2: 脱敏敏感文本,防止密码/token 泄漏到日志
+
+    保留前 ``visible`` 字符用于调试,其余用 ``*`` 替换 (最多 20 个星号)。
+    短文本 (<=visible) 全脱敏。
+    """
+    if not text:
+        return ""
+    if len(text) <= visible:
+        return "*" * len(text)
+    return text[:visible] + "*" * min(len(text) - visible, 20)
+
+
 async def _ensure_session():
     """确保浏览器会话已启动,返回 (browser_service, error_dict)。
 
@@ -162,8 +175,9 @@ class BrowserTypeTool(BaseTool):
             return ToolResult(success=False, output="", error=err)
         result = await svc.execute_action(action="type", selector=selector, text=text)
         if result.get("ok"):
+            # v2.2.1 P2: 日志脱敏 — 防止密码/token 泄漏到日志/输出
             return ToolResult(
                 success=True,
-                output=f"已在元素 {selector} 输入文本: {text[:50]}{'...' if len(text) > 50 else ''}",
+                output=f"已在元素 {selector} 输入文本: {_mask_sensitive(text)}",
             )
         return ToolResult(success=False, output="", error=result.get("error", "输入失败"))

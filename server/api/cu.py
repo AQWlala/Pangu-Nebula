@@ -1,21 +1,34 @@
 # server/api/cu.py
 """Computer Use 任务调度 API"""
 from __future__ import annotations
+import asyncio
+import uuid
+from dataclasses import asdict
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from datetime import datetime, timezone
-import uuid
 
 from server.cu.planner import CUTaskPlanner
 from server.cu.safety.emergency_stop import EmergencyStop
 from server.cu.safety.audit_log import AuditLogger
-from server.cu.safety.rollback import RollbackManager
+from server.cu.executor.runner import CUExecutor
 from server.config_kb_cu import CUConfig
 
 router = APIRouter(prefix="/api/cu", tags=["computer-use"])
 
 _emergency_stop = EmergencyStop()
 _tasks: dict[str, dict] = {}
+
+# Module-level executor singleton (shares emergency stop with the API)
+_executor: CUExecutor | None = None
+
+
+def _get_executor() -> CUExecutor:
+    global _executor
+    if _executor is None:
+        _executor = CUExecutor(emergency_stop=_emergency_stop)
+    return _executor
 
 
 class CreateTaskRequest(BaseModel):
@@ -56,8 +69,25 @@ async def create_task(req: CreateTaskRequest):
 async def execute_task(task_id: str, auto_confirm: bool = False):
     if task_id not in _tasks:
         raise HTTPException(status_code=404, detail="任务不存在")
-    _tasks[task_id]["status"] = "executing"
-    return {"success": True, "task_id": task_id, "status": "executing"}
+
+    task = _tasks[task_id]
+    plan = task["plan"]
+    # CUTaskPlan.steps are dataclasses — convert to dicts for the executor
+    plan_steps = [asdict(s) for s in plan.steps]
+
+    task["status"] = "executing"
+    task["current_step"] = 0
+
+    executor = _get_executor()
+    # Run in a thread to avoid blocking the event loop
+    result = await asyncio.to_thread(executor.run_task, task_id, plan_steps)
+
+    task["status"] = result["status"]
+    task["current_step"] = result["executed_steps"]
+    task["result"] = result
+
+    return {"success": True, "task_id": task_id, "status": result["status"],
+            "executed_steps": result["executed_steps"]}
 
 
 @router.post("/emergency-stop")
@@ -73,13 +103,17 @@ async def reset_emergency_stop():
 
 
 @router.post("/tasks/{task_id}/rollback")
-async def rollback_task(task_id: str, to_step: int = 0):
+async def rollback_task(task_id: str, to_step: int | None = None):
     if task_id not in _tasks:
         raise HTTPException(status_code=404, detail="任务不存在")
-    manager = RollbackManager()
-    result = await manager.rollback_task(task_id, to_step)
-    return {"success": result.success, "rolled_back_count": result.rolled_back_count,
-            "skipped_count": result.skipped_count}
+
+    executor = _get_executor()
+    result = await asyncio.to_thread(executor.rollback_task, task_id, to_step)
+
+    if result.get("success"):
+        _tasks[task_id]["status"] = "rolled_back"
+
+    return result
 
 
 @router.get("/tasks/{task_id}/status")

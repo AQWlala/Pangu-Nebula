@@ -1,18 +1,19 @@
-# Tauri Release - v2.1.* tag 触发,三平台构建 + 签名 + latest.json 上传
+# Tauri Release - v2.* tag 触发,三平台构建 + 签名 + latest.json 上传
 # P0-W6.3 初版 + P0-W7.1/W7.2 重构: prepare → build → publish 三阶段
 # P0-W7.2: swatinem/rust-cache 缓存 ~/.cargo + src-tauri/target (减少构建时间 50-70%)
+# v2.2.0: tag 触发模式扩展为 v2.* 覆盖未来所有 v2.x.x 大版本
 name: Tauri Release
 
 on:
   push:
     tags:
-      - 'v2.1.*'
+      - 'v2.*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v2.1.0)'
+        description: 'Release tag (e.g. v2.2.0)'
         required: true
-        default: 'v2.1.0'
+        default: 'v2.2.0'
 
 permissions:
   contents: write

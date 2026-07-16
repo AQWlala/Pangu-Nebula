@@ -36,13 +36,25 @@ async def test_graph_rebuild_endpoint(client, tmp_path, monkeypatch):
 
 def test_relation_extractor_recommend():
     from server.kb.graph.relation_extractor import RelationExtractor
+    from server.kb.storage.frontmatter import FrontMatter
     extractor = RelationExtractor()
-    recommendations = extractor.recommend_relations(
-        doc_id="kb-001",
-        similar_docs=[
-            {"doc_id": "kb-002", "title": "相关文档", "score": 0.85},
-            {"doc_id": "kb-003", "title": "扩展文档", "score": 0.75},
-        ],
+    source = FrontMatter(
+        id="kb-001", title="源文档", type="note",
+        scope="private", source_type="manual", confidence=0.9,
+        checksum="sha256:abc1", tags=["python", "ai", "ml"],
     )
+    candidates = [
+        FrontMatter(
+            id="kb-002", title="相关文档", type="note",
+            scope="private", source_type="manual", confidence=0.9,
+            checksum="sha256:abc2", tags=["python", "ai", "data"],
+        ),
+        FrontMatter(
+            id="kb-003", title="扩展文档", type="note",
+            scope="private", source_type="manual", confidence=0.9,
+            checksum="sha256:abc3", tags=["python", "ml", "nlp"],
+        ),
+    ]
+    recommendations = extractor.recommend_relations(source, candidates)
     assert len(recommendations) > 0
     assert all(r.confidence > 0 for r in recommendations)

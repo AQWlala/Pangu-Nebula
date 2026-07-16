@@ -53,12 +53,36 @@ async def rebuild_graph(scope: str | None = None):
     store = KuzuGraphStore(db_dir=config.kuzu_dir)
     store.init_schema()
     from server.kb.storage.repo import DocumentRepo
+    from server.kb.graph.relation_extractor import RelationExtractor
     repo = DocumentRepo(documents_dir=config.documents_dir)
+
+    # 收集所有文档并写入节点
+    documents = []
     count = 0
     for doc_id in repo.list_all():
         fm, _ = repo.read(doc_id)
         if scope and fm.scope != scope:
             continue
         store.add_document(fm.id, fm.title, fm.type, fm.scope, fm.confidence, fm.id)
+        documents.append(fm)
         count += 1
-    return {"success": True, "indexed_count": count}
+
+    # 基于共享 tags/categories 推荐并写入关系边
+    extractor = RelationExtractor()
+    relation_count = 0
+    for i, doc in enumerate(documents):
+        candidates = extractor.recommend_relations(doc, documents[i + 1:])
+        for rel in candidates:
+            try:
+                store.add_relation(
+                    source_id=rel.source_id,
+                    target_id=rel.target_id,
+                    rel_type=rel.relation_type,
+                    weight=rel.confidence,
+                )
+                relation_count += 1
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to add relation: {e}")
+
+    return {"success": True, "indexed_count": count, "relation_count": relation_count}

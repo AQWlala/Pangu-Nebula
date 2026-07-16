@@ -4,10 +4,25 @@ from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
 
 from ..db.engine import async_session
-from ..db.orm import Conversation, Message
+from ..db.orm import Conversation, Message, Persona
 from ..providers.base import Message as ProviderMessage
 from ..providers.registry import get_provider
 from .compact import CompactEngine
+
+
+# 系统默认 Persona (兜底用, 不入库)
+# 当对话未关联 Persona 且数据库无任何 Persona 时使用, 避免直接报错阻断对话。
+# model_provider 留空, 会走到 "No model provider configured" 友好引导分支。
+_DEFAULT_PERSONA = Persona(
+    id=0,
+    name="Nebula 默认助手",
+    avatar="🧸",
+    system_prompt="你是一个友好的 AI 助手。请先在角色管理中创建并激活一个角色以获得更好的体验。",
+    temperature=0.7,
+    max_tokens=4096,
+    model_provider=None,
+    model_name="gpt-4",
+)
 
 
 class ChatService:
@@ -76,11 +91,14 @@ class ChatService:
 
             persona = conv.persona
             if persona is None:
-                yield {
-                    "type": "error",
-                    "error": "Persona not configured for this conversation",
-                }
-                return
+                # 回退 1: 尝试用数据库中第一个 Persona (应对 active_state 丢失或对话未关联)
+                fallback_result = await session.execute(
+                    select(Persona).order_by(Persona.created_at.asc()).limit(1)
+                )
+                persona = fallback_result.scalar_one_or_none()
+                # 回退 2: 仍无 Persona, 用系统默认 (会走到下方 "No model provider" 友好引导)
+                if persona is None:
+                    persona = _DEFAULT_PERSONA
 
             system_prompt = persona.system_prompt
             model_provider = persona.model_provider
@@ -116,7 +134,7 @@ class ChatService:
         if not model_provider:
             yield {
                 "type": "error",
-                "error": "No model provider configured for this persona",
+                "error": "尚未配置模型 Provider，请在「设置」中添加 API Key 后，在「角色管理」创建并激活角色",
             }
             return
 

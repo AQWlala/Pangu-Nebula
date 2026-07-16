@@ -287,8 +287,10 @@ function EvolutionPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const data = await apiGet<any[]>("/evolution")
-        setLogs(data || [])
+        // /evolution 返回引擎信息对象 (非数组), 日志列表在 /evolution/logs
+        const data = await apiGet<{ items: any[]; count: number }>("/evolution/logs")
+        // 防御性: 后端契约变更时不应崩溃
+        setLogs(Array.isArray(data?.items) ? data.items : [])
       } catch (e: any) {
         setError(e.message || "加载失败")
       } finally {
@@ -348,6 +350,8 @@ function DiagnosticsPage() {
   const [healthData, setHealthData] = useState<any>(null)
   const [healthCheckData, setHealthCheckData] = useState<any>(null)
   const [error, setError] = useState("")
+  // 局部刷新触发器: 替代 window.location.reload() (避免重置到默认页)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     const runDiagnostics = async () => {
@@ -376,7 +380,7 @@ function DiagnosticsPage() {
       }
     }
     runDiagnostics()
-  }, [])
+  }, [refreshKey])
 
   const statusColor =
     healthStatus === "ok" ? "#28C840" : healthStatus === "fail" ? "#FF5F57" : "#FFBD2E"
@@ -468,7 +472,8 @@ function DiagnosticsPage() {
           onClick={async () => {
             try {
               await apiPost("/health-check/check-all", {})
-              window.location.reload()
+              // 局部刷新诊断数据, 不重载整个应用 (避免重置到默认页)
+              setRefreshKey((k) => k + 1)
             } catch (e: any) {
               setError(e.message)
             }

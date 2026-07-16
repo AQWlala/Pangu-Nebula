@@ -131,13 +131,25 @@ export default function ChatPanel() {
     }
   }
 
-  // 加载当前激活角色
+  // 加载当前激活角色 (兜底: 无激活时回退到列表第一个)
   const loadActivePersona = async () => {
     try {
       const data = await apiGet<any>('/persona/active')
-      setActivePersona(data)
+      if (data) {
+        setActivePersona(data)
+        return
+      }
     } catch {
-      // 暂无激活角色,忽略
+      // 暂无激活角色, 尝试列表兜底
+    }
+    // 兜底: 无激活角色时取列表第一个, 避免创建无 persona 对话
+    try {
+      const list = await apiGet<any[]>('/persona')
+      if (list && list.length > 0) {
+        setActivePersona(list[0])
+      }
+    } catch {
+      // 列表也为空, 保持 null (后端有 _DEFAULT_PERSONA 兜底)
     }
   }
 

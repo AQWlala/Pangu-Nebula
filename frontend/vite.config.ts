@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite'
 import preact from '@preact/preset-vite'
 
@@ -5,6 +6,11 @@ import preact from '@preact/preset-vite'
 // v2.1.0 Phase 0: Tauri 2 兼容 — base 路径 + strictPort + 环境检测
 export default defineConfig({
   plugins: [preact()],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+  },
   // Tauri 2 打包后从 tauri:// 协议加载,需相对路径;dev 模式用绝对路径
   base: process.env.TAURI_ENV_PLATFORM ? './' : '/',
   build: {

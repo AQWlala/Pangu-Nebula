@@ -5,17 +5,7 @@
  * - Tauri 模式: request() 调用 invoke('http_proxy', ...)
  * - 浏览器模式: request() 调用 fetch
  * - apiStream 两种模式都走 fetch (SSE 必须直连)
- *
- * 注意: 此测试需要 vitest 配置才能运行。当前项目未配置 vitest,
- * 此文件作为代码结构存在,后续配置 vitest 后可直接运行。
- *
- * 配置步骤 (未来):
- * 1. npm install -D vitest @testing-library/preact jsdom
- * 2. vitest.config.ts: { test: { environment: 'jsdom' } }
- * 3. package.json: "test": "vitest run"
  */
-
-// @ts-nocheck  (vitest 未安装, 类型检查跳过; 配置 vitest 后移除此行)
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
@@ -249,9 +239,12 @@ describe("api.ts 双实现", () => {
   // --- apiStream (两种模式都走 fetch) ---
 
   describe("apiStream (SSE 直连, 不走 invoke)", () => {
-    it("Tauri 模式: apiStream 走 fetch (不走 invoke)", async () => {
+    it("Tauri 模式: apiStream 通过 getHandshake 获取端口后走 fetch", async () => {
       setTauriMode(true, 12345, "stream-token")
       const chunks = ["data: hello", "data: world", "data: [DONE]"]
+
+      // Mock invoke: get_sidecar_handshake 返回端口+token
+      mockInvoke.mockResolvedValue({ port: 12345, token: "stream-token" })
 
       // Mock ReadableStream
       const encoder = new TextEncoder()
@@ -280,8 +273,8 @@ describe("api.ts 双实现", () => {
         received.push(chunk)
       })
 
-      // apiStream 不应调用 invoke
-      expect(mockInvoke).not.toHaveBeenCalled()
+      // apiStream 应通过 invoke 获取 handshake (get_sidecar_handshake)
+      expect(mockInvoke).toHaveBeenCalledWith("get_sidecar_handshake")
       // 应该调用 fetch (直连 sidecar 动态端口)
       expect(mockFetch).toHaveBeenCalledWith(
         "http://127.0.0.1:12345/chat/stream",

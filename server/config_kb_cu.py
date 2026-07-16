@@ -1,24 +1,42 @@
 # server/config_kb_cu.py
 """知识库与 Computer Use 配置模块"""
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
 class KBConfig:
     """知识库配置"""
-    kb_root: Path = Path.home() / ".pangu-nebula" / "knowledge_base"
-    documents_dir: Path = kb_root / "documents"
-    inbox_dir: Path = kb_root / "_inbox"
-    sandbox_dir: Path = kb_root / "_sandbox"
-    archive_dir: Path = kb_root / "_archive"
-    indexes_dir: Path = kb_root / "indexes"
-    chroma_dir: Path = indexes_dir / "chroma"
-    kuzu_dir: Path = indexes_dir / "kuzu"
-    meta_db: Path = kb_root / "meta.db"
+    kb_root: Path = field(default_factory=lambda: Path.home() / ".pangu-nebula" / "knowledge_base")
+    documents_dir: Path | None = None
+    inbox_dir: Path | None = None
+    sandbox_dir: Path | None = None
+    archive_dir: Path | None = None
+    indexes_dir: Path | None = None
+    chroma_dir: Path | None = None
+    kuzu_dir: Path | None = None
+    meta_db: Path | None = None
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     chunk_size: int = 512
     chunk_overlap: int = 50
+
+    def __post_init__(self):
+        if self.documents_dir is None:
+            self.documents_dir = self.kb_root / "documents"
+        if self.inbox_dir is None:
+            self.inbox_dir = self.kb_root / "_inbox"
+        if self.sandbox_dir is None:
+            self.sandbox_dir = self.kb_root / "_sandbox"
+        if self.archive_dir is None:
+            self.archive_dir = self.kb_root / "_archive"
+        if self.indexes_dir is None:
+            self.indexes_dir = self.kb_root / "indexes"
+        if self.chroma_dir is None:
+            self.chroma_dir = self.indexes_dir / "chroma"
+        if self.kuzu_dir is None:
+            self.kuzu_dir = self.indexes_dir / "kuzu"
+        if self.meta_db is None:
+            self.meta_db = self.kb_root / "meta.db"
 
     def ensure_dirs(self) -> None:
         for d in [self.kb_root, self.documents_dir, self.inbox_dir,

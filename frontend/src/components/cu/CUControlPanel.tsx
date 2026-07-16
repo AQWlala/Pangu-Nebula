@@ -1,4 +1,3 @@
-import { h } from 'preact';
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { EmergencyStopButton } from './EmergencyStopButton';
 import { apiGet, apiPost } from '../../lib/api';

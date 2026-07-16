@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/preact';
-import { h } from 'preact';
 
 // Mock apiGet/apiPost — components no longer use raw fetch
 vi.mock('../../lib/api', () => ({
@@ -13,7 +12,7 @@ import { CUControlPanel } from '../cu/CUControlPanel';
 import { apiGet, apiPost } from '../../lib/api';
 
 /** Helper: find a button whose trimmed text matches the given label. */
-function findButton(container: HTMLElement, label: string): HTMLButtonElement {
+function findButton(container: Element, label: string): HTMLButtonElement {
   const buttons = Array.from(container.querySelectorAll('button'));
   const match = buttons.find((b) => (b.textContent || '').trim() === label);
   if (!match) throw new Error(`Button "${label}" not found. Buttons: ${buttons.map((b) => b.textContent).join(', ')}`);
@@ -83,7 +82,7 @@ describe('CUControlPanel', () => {
     });
 
     // Task list should have been refreshed (apiGet called at least twice).
-    expect(apiGet.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(vi.mocked(apiGet).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('execute button calls apiPost, shows loading state, then refreshes', async () => {
@@ -118,7 +117,7 @@ describe('CUControlPanel', () => {
     });
 
     // Task list refreshed: initial + after create + after execute.
-    expect(apiGet.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(vi.mocked(apiGet).mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 
   it('stop button calls apiPost', async () => {

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, waitFor } from '@testing-library/preact';
-import { h } from 'preact';
 
 // Capture all Graph instances created by the mock so we can assert on
 // setData / render / destroy / resize calls.
@@ -31,9 +30,7 @@ vi.mock('../../lib/api', () => ({
 // callback so we can simulate resize events in tests.
 const resizeCallbacks: Array<(entries: any[]) => void> = [];
 class ResizeObserverStub {
-  private cb: (entries: any[]) => void;
   constructor(cb: (entries: any[]) => void) {
-    this.cb = cb;
     resizeCallbacks.push(cb);
   }
   observe() {}

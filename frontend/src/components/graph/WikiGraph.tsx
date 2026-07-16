@@ -1,4 +1,3 @@
-import { h } from 'preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { Graph } from '@antv/g6';
 import { apiGet } from '../../lib/api';

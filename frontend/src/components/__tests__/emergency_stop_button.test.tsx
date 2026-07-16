@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/preact';
-import { h } from 'preact';
 
 // Mock apiGet/apiPost — components no longer use raw fetch
 vi.mock('../../lib/api', () => ({

@@ -10,8 +10,8 @@
 - 因 A1 对 ``KBConfig.__post_init__`` 的调整，``kb_root`` 使用
   ``field(default_factory=...)``，``monkeypatch.setattr(KBConfig, "kb_root", ...)``
   会抛 ``AttributeError``。故遵循 ``tests/test_config_fix.py`` 的构造器模式：
-  ``KBConfig(kb_root=tmp_path / "kb")``，并 monkeypatch ``server.api.kb._get_config``
-  使其返回该实例。
+  ``KBConfig(kb_root=tmp_path / "kb")``，并 monkeypatch ``server.kb.service.get_kb_config``
+  （P4+Q3 后配置函数由 ``server.api.kb._get_config`` 迁至此处）使其返回该实例。
 """
 import pytest
 from httpx import AsyncClient, ASGITransport
@@ -32,13 +32,13 @@ async def client():
 def kb_config(tmp_path, monkeypatch):
     """将 KB 路径重定向到 tmp_path，遵循构造器模式（见 test_config_fix.py）。
 
-    通过 monkeypatch ``server.api.kb._get_config`` 让所有端点使用同一个
+    通过 monkeypatch ``server.kb.service.get_kb_config``（P4+Q3 后由
+    ``server.api.kb._get_config`` 迁至此处）让所有端点使用同一个
     指向 tmp_path 的 KBConfig 实例，避免触及用户 home 目录。
     """
     config = KBConfig(kb_root=tmp_path / "kb")
     config.ensure_dirs()
-    import server.api.kb as kb_module
-    monkeypatch.setattr(kb_module, "_get_config", lambda: config)
+    monkeypatch.setattr("server.kb.service.get_kb_config", lambda: config)
     return config
 
 

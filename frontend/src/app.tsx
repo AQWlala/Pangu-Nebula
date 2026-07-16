@@ -17,6 +17,8 @@ import MemoryInspector from "./components/MemoryInspector"
 import SkillMarketplace from "./components/SkillMarketplace"
 import WikiBrowser from "./components/WikiBrowser"
 import WikiReviewInbox from "./components/WikiReviewInbox"
+import { WikiGraph } from "./components/graph/WikiGraph"
+import { CUControlPanel } from "./components/cu/CUControlPanel"
 import Dashboard from "./components/Dashboard"
 import { apiGet, apiPost, getApiBase, IS_TAURI, waitForSidecar } from "./lib/api"
 
@@ -155,6 +157,10 @@ export default function App() {
         return <SkillMarketplace />
       case "wiki":
         return <WikiBrowser />
+      case "wikigraph":
+        return <WikiGraph />
+      case "computer-use":
+        return <CUControlPanel />
       case "wiki-review":
         return <WikiReviewInbox />
       case "persona":

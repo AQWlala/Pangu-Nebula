@@ -2,23 +2,29 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from '@testing-library/preact';
 import { h } from 'preact';
 
-// Mock @antv/g6 BEFORE importing WikiGraph — G6 needs canvas/WebGL which jsdom lacks
+// Mock @antv/g6 with v5 named export — G6 needs canvas/WebGL which jsdom lacks
 vi.mock('@antv/g6', () => ({
-  default: {
-    Graph: vi.fn().mockImplementation(() => ({
-      data: vi.fn(),
-      render: vi.fn(),
-      destroy: vi.fn(),
-    })),
-  },
+  Graph: vi.fn().mockImplementation(() => ({
+    setData: vi.fn(),
+    render: vi.fn().mockResolvedValue(undefined),
+    destroy: vi.fn(),
+    resize: vi.fn(),
+  })),
 }));
 
-// Mock global fetch (WikiGraph and CUControlPanel call fetch in useEffect)
-const mockFetch = vi.fn().mockResolvedValue({
-  ok: true,
-  json: async () => ({ nodes: [], edges: [], tasks: [] }),
-});
-global.fetch = mockFetch as any;
+// Mock apiGet/apiPost — components no longer use raw fetch
+vi.mock('../../lib/api', () => ({
+  apiGet: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
+  apiPost: vi.fn().mockResolvedValue({ task_id: 'test', status: 'created' }),
+}));
+
+// ResizeObserver is not available in jsdom — stub it to avoid errors
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+(globalThis as any).ResizeObserver = ResizeObserverStub;
 
 // Import components AFTER mocks
 import { WikiGraph } from '../graph/WikiGraph';
@@ -26,7 +32,7 @@ import { EmergencyStopButton } from '../cu/EmergencyStopButton';
 
 describe('WikiGraph', () => {
   beforeEach(() => {
-    mockFetch.mockClear();
+    vi.clearAllMocks();
   });
 
   it('renders container div with id graph-container', () => {

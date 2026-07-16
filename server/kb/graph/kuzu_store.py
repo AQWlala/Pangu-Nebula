@@ -38,6 +38,24 @@ class KuzuGraphStore:
         self._db = kuzu.Database(str(self.db_dir))
         self._conn = kuzu.Connection(self._db)
 
+    def close(self):
+        """Release the KùzuDB connection and database references.
+
+        Safe to call multiple times; subsequent calls are no-ops.
+        """
+        try:
+            self._conn = None
+            self._db = None
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
     def init_schema(self):
         self._ensure_connection()
         for ddl in self.SCHEMA_DDL:

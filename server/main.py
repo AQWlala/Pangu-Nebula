@@ -73,8 +73,44 @@ async def lifespan(app: FastAPI):
     app.state.db_initialized = False
     await init_db()
     app.state.db_initialized = True
+
+    # P1: Initialize KB storage singletons in app.state so API handlers can
+    # reuse one ChromaVectorStore / KuzuGraphStore instead of creating a new
+    # connection per request. Wrapped in try/except so a KB init failure does
+    # not break the rest of the app (endpoints fall back to per-request
+    # construction when app.state.vector_store is absent).
+    try:
+        from .config_kb_cu import KBConfig
+        from .kb.retrieval.vectorstore import ChromaVectorStore
+        from .kb.graph.kuzu_store import KuzuGraphStore
+
+        kb_config = getattr(app.state, "kb_config", None) or KBConfig()
+        kb_config.ensure_dirs()
+        app.state.kb_config = kb_config
+        app.state.vector_store = ChromaVectorStore(persist_dir=kb_config.chroma_dir)
+        graph_store = KuzuGraphStore(db_dir=kb_config.kuzu_dir)
+        graph_store.init_schema()
+        app.state.graph_store = graph_store
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "KB store singleton initialization failed; endpoints will fall "
+            "back to per-request construction",
+            exc_info=True,
+        )
+
     app.state.services_loaded = True
     yield
+    # Shutdown: release store connections. Each close() is wrapped in its own
+    # try/except so one failing release does not skip the others.
+    for _attr in ("vector_store", "graph_store"):
+        _store = getattr(app.state, _attr, None)
+        if _store is None:
+            continue
+        try:
+            _store.close()
+        except Exception:
+            pass
 
 
 app = FastAPI(lifespan=lifespan, debug=settings.debug)

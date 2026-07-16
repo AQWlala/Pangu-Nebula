@@ -84,6 +84,24 @@ class ChromaVectorStore:
             embedding_function=self._embedding_function,
         )
 
+    def close(self):
+        """Release the ChromaDB client and collection references.
+
+        Safe to call multiple times; subsequent calls are no-ops.
+        """
+        try:
+            self._collection = None
+            self._client = None
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
     def upsert(self, chunks: list[dict]) -> None:
         if not chunks:
             return

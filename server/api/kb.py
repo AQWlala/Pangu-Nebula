@@ -1,7 +1,7 @@
 # server/api/kb.py
 """知识库 CRUD API"""
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timezone
@@ -70,6 +70,19 @@ def _get_config() -> KBConfig:
     return config
 
 
+def _get_vector_store(request: Request) -> ChromaVectorStore:
+    """Return the singleton ChromaVectorStore from app.state when available.
+
+    Falls back to per-request construction when the lifespan did not
+    initialize a singleton (e.g. in tests that bypass lifespan).
+    """
+    store = getattr(request.app.state, "vector_store", None)
+    if store is not None:
+        return store
+    config = _get_config()
+    return ChromaVectorStore(persist_dir=config.chroma_dir)
+
+
 @router.post("/import", response_model=ImportResponse)
 async def import_document(req: ImportRequest):
     config = _get_config()
@@ -105,7 +118,7 @@ async def list_inbox():
 
 
 @router.post("/inbox/{pending_id}/approve")
-async def approve_document(pending_id: str):
+async def approve_document(pending_id: str, request: Request):
     config = _get_config()
     inbox = InboxWriter(inbox_dir=config.inbox_dir)
     repo = DocumentRepo(documents_dir=config.documents_dir)
@@ -126,7 +139,7 @@ async def approve_document(pending_id: str):
     try:
         from server.kb.retrieval.indexer import Indexer
 
-        store = ChromaVectorStore(persist_dir=config.chroma_dir)
+        store = _get_vector_store(request)
         indexer = Indexer(
             repo=repo, vector_store=store, indexes_dir=config.indexes_dir
         )
@@ -194,7 +207,7 @@ async def delete_document(doc_id: str, scope: str | None = None):
 
 
 @router.get("/search")
-async def search_documents(query: str, scope: str = "private", top_k: int = 5):
+async def search_documents(query: str, scope: str = "private", top_k: int = 5, request: Request = None):
     """混合检索文档"""
     if not query or not query.strip():
         return JSONResponse(status_code=400, content={"error": "query must not be empty"})
@@ -202,7 +215,7 @@ async def search_documents(query: str, scope: str = "private", top_k: int = 5):
     from server.kb.retrieval.hybrid import HybridSearcher
     config = _get_config()
     repo = DocumentRepo(documents_dir=config.documents_dir)
-    store = ChromaVectorStore(persist_dir=config.chroma_dir)
+    store = _get_vector_store(request)
     searcher = HybridSearcher(repo=repo, vector_store=store)
     results = searcher.search(query=query, scope=scope, top_k=top_k)
     return {"results": [{

@@ -10,6 +10,11 @@
 由于 Tauri 窗口/托盘需要 GUI 环境, 本测试验证代码结构 + sidecar 行为。
 """
 
+import pytest
+
+# uvicorn 是可选依赖（sidecar 启动需要），未安装时跳过
+pytest.importorskip("uvicorn")
+
 import json
 import os
 import subprocess

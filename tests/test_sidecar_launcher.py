@@ -12,6 +12,9 @@ from unittest.mock import patch
 
 import pytest
 
+# uvicorn 是可选依赖（launch.py 顶部导入），未安装时跳过而非中断整个测试套件
+pytest.importorskip("uvicorn")
+
 from launch import (
     allocate_os_port,
     emit_handshake,

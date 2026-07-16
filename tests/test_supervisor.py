@@ -12,6 +12,11 @@
 由于 Tauri supervisor 需要 GUI 环境, 本测试验证代码结构 + Python 脚本功能 + sidecar 行为。
 """
 
+import pytest
+
+# uvicorn 是可选依赖（sidecar 启动需要），未安装时跳过
+pytest.importorskip("uvicorn")
+
 import json
 import os
 import subprocess

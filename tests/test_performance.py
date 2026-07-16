@@ -1,5 +1,7 @@
 """
 性能基准测试 - 验证启动 < 5s, 首响应 < 3s
+
+需要 uvicorn 才能启动后端服务器，未安装时自动跳过。
 """
 import time
 import subprocess
@@ -7,6 +9,9 @@ import sys
 import os
 import httpx
 import pytest
+
+# uvicorn 是可选依赖（后端启动需要），未安装时跳过
+pytest.importorskip("uvicorn")
 
 BACKEND_URL = "http://127.0.0.1:7860"
 # 用当前 Python 解释器,避免硬编码 .venv 路径 (Windows/Linux 通用)

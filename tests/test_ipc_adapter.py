@@ -2,6 +2,8 @@
 
 验证 http_proxy command 转发的端点行为。
 
+需要 uvicorn 才能启动 sidecar 进程，未安装时自动跳过。
+
 由于 Rust http_proxy command 无法在 pytest 中直接调用 (需要 Tauri 运行时),
 本测试通过 HTTP 直接请求 sidecar CRUD 端点 (带 Bearer token), 模拟
 http_proxy command 的转发行为:
@@ -30,6 +32,10 @@ import time
 from pathlib import Path
 
 import pytest
+
+# uvicorn 是可选依赖（sidecar 启动需要），未安装时跳过
+pytest.importorskip("uvicorn")
+
 import urllib.request
 import urllib.error
 

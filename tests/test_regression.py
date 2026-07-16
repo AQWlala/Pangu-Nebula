@@ -14,6 +14,11 @@ T8: Rust 双目标 crate 编译
 """
 from __future__ import annotations
 
+import pytest
+
+# 回归测试依赖 sidecar 集成测试，需要 uvicorn
+pytest.importorskip("uvicorn")
+
 import os
 import re
 import shutil

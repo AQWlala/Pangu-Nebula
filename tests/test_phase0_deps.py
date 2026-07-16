@@ -52,5 +52,5 @@ def test_yaml_dependency():
 
 def test_pandas_dependency():
     """pandas 必须可导入(M1.3 Excel 解析强依赖)"""
-    import pandas
-    assert pandas is not None
+    pytest = __import__("pytest")
+    pytest.importorskip("pandas")

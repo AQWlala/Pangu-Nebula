@@ -498,8 +498,10 @@ def test_new_provider_only_needs_one_class(monkeypatch):
 # ===== 9. 统一 StreamChunk 流式接口 =====
 
 
-async def test_unified_stream_interface_yields_streamchunks():
+async def test_unified_stream_interface_yields_streamchunks(monkeypatch):
     """stream() 统一接口产出 StreamChunk 对象"""
+    monkeypatch.delenv("NEBULA_DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr("server.providers.config_store.get_provider_config", lambda name: {})
     provider = DeepSeekProvider()  # 无 API key
     msgs = [Message(role="user", content="hello stream")]
     chunks = []
@@ -557,6 +559,7 @@ def test_base_provider_has_protocol_field():
 async def test_deepseek_generate_strips_images_automatically(monkeypatch):
     """DeepSeek (vision=False) 的 generate 自动剥离图片,返回 mock"""
     monkeypatch.delenv("NEBULA_DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr("server.providers.config_store.get_provider_config", lambda name: {})
     provider = DeepSeekProvider()
     assert provider.capabilities.vision is False
 

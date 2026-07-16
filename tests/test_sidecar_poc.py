@@ -2,6 +2,8 @@
 
 Go/No-Go #3 硬检查点测试 — 验证 Tauri + Python sidecar 双进程架构可行性。
 
+需要 uvicorn 才能启动 sidecar 进程，未安装时自动跳过。
+
 模拟 Tauri 主进程的行为:
 1. spawn Python sidecar 子进程 (NEBULA_SHELL=tauri)
 2. 读取 stdout 解析 PORT=/TOKEN=/READY 握手协议
@@ -22,6 +24,10 @@ import time
 from pathlib import Path
 
 import pytest
+
+# uvicorn 是可选依赖（sidecar 启动需要），未安装时跳过
+pytest.importorskip("uvicorn")
+
 import urllib.request
 import urllib.error
 

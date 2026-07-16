@@ -59,9 +59,14 @@ _PARAM_LIST = [(name, *vals) for name, vals in NEW_PROVIDERS.items()]
 
 @pytest.fixture(autouse=True)
 def _clear_api_keys(monkeypatch):
-    """Ensure no API key is set in the environment for any new provider."""
+    """Ensure no API key is set in the environment or config for any new provider."""
     for _, _, _, env_var in _PARAM_LIST:
         monkeypatch.delenv(env_var, raising=False)
+    # Also mock resolve_api_key so it doesn't read from config file
+    monkeypatch.setattr(
+        "server.providers.protocols.openai_protocol.resolve_api_key",
+        lambda env_key, provider_name: "",
+    )
 
 
 @pytest.mark.parametrize("name,cls,models,env_var", _PARAM_LIST)

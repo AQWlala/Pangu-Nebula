@@ -2,7 +2,8 @@
 """知识库 CRUD API"""
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timezone
 import hashlib
 import uuid
@@ -18,12 +19,43 @@ router = APIRouter(prefix="/api/kb", tags=["knowledge-base"])
 
 
 class ImportRequest(BaseModel):
-    content: str
-    title: str
+    content: str = Field(..., max_length=10_000_000)  # 10MB
+    title: str = Field(..., max_length=200)
     type: str = "note"
     scope: str = "private"
     tags: list[str] = []
     categories: list[str] = []
+
+    @field_validator('title')
+    @classmethod
+    def title_not_empty(cls, v):
+        if not v or not v.strip():
+            raise ValueError('title must not be empty')
+        return v.strip()
+
+    @field_validator('content')
+    @classmethod
+    def content_not_empty(cls, v):
+        if not v or not v.strip():
+            raise ValueError('content must not be empty')
+        return v
+
+    @field_validator('tags', 'categories')
+    @classmethod
+    def tags_no_comma(cls, v):
+        for item in v:
+            if ',' in item:
+                raise ValueError(f'tag/category must not contain comma: {item}')
+            if len(item) > 32:
+                raise ValueError(f'tag/category must not exceed 32 chars: {item}')
+        return v
+
+    @field_validator('scope')
+    @classmethod
+    def scope_valid(cls, v):
+        if v not in ('private', 'project', 'public'):
+            raise ValueError('scope must be one of: private, project, public')
+        return v
 
 
 class ImportResponse(BaseModel):
@@ -147,6 +179,9 @@ async def delete_document(doc_id: str, scope: str | None = None):
 @router.get("/search")
 async def search_documents(query: str, scope: str = "private", top_k: int = 5):
     """混合检索文档"""
+    if not query or not query.strip():
+        return JSONResponse(status_code=400, content={"error": "query must not be empty"})
+    top_k = max(1, min(50, top_k))  # Clamp to [1, 50]
     from server.kb.retrieval.hybrid import HybridSearcher
     config = _get_config()
     repo = DocumentRepo(documents_dir=config.documents_dir)

@@ -19,6 +19,7 @@ def _get_store() -> KuzuGraphStore:
 
 @router.get("/documents")
 async def get_document_graph(scope: str = "private", depth: int = 2):
+    depth = max(1, min(3, depth))  # Clamp to [1, 3]
     store = _get_store()
     docs = store.list_documents(scope=scope)
     nodes = [{"id": d["id"], "label": d["title"], "type": "document",

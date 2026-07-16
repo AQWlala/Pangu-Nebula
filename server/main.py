@@ -47,6 +47,7 @@ from .api.acp_adapters import router as acp_adapters_router
 from .api.skill_market import router as skill_market_router
 from .api.update import router as update_router
 from .api.health import router as health_check_router
+from .api.cu import router as cu_router
 from .tools import builtin_tools  # noqa: F401
 
 load_dotenv()
@@ -162,6 +163,7 @@ app.include_router(acp_adapters_router)
 app.include_router(skill_market_router)
 app.include_router(update_router)
 app.include_router(health_check_router)
+app.include_router(cu_router)
 
 
 @app.get("/health")

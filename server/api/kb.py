@@ -11,6 +11,7 @@ from server.kb.storage.repo import DocumentRepo
 from server.kb.storage.inbox import InboxWriter
 from server.kb.storage.frontmatter import FrontMatter, parse_frontmatter
 from server.kb.parser.validator import validate_frontmatter, ValidationError
+from server.kb.retrieval.vectorstore import ChromaVectorStore
 
 router = APIRouter(prefix="/api/kb", tags=["knowledge-base"])
 
@@ -127,3 +128,18 @@ async def delete_document(doc_id: str):
         raise HTTPException(status_code=404, detail="文档不存在")
     repo.delete(doc_id)
     return {"success": True, "message": "文档已删除"}
+
+
+@router.get("/search")
+async def search_documents(query: str, scope: str = "private", top_k: int = 5):
+    """混合检索文档"""
+    from server.kb.retrieval.hybrid import HybridSearcher
+    config = _get_config()
+    repo = DocumentRepo(documents_dir=config.documents_dir)
+    store = ChromaVectorStore(persist_dir=config.chroma_dir)
+    searcher = HybridSearcher(repo=repo, vector_store=store)
+    results = searcher.search(query=query, scope=scope, top_k=top_k)
+    return {"results": [{
+        "doc_id": r.doc_id, "title": r.title, "chunk_text": r.chunk_text,
+        "score": r.score, "source_method": r.source_method, "scope": r.scope, "tags": r.tags,
+    } for r in results]}

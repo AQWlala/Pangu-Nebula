@@ -109,15 +109,18 @@ def build_sidecar() -> int:
         "--hidden-import=yaml",
         "--hidden-import=docx",
         "--hidden-import=pypdf",
-        "--hidden-import=marker.converters.pdf",
-        "--hidden-import=marker.models",
-        "--collect-submodules=marker",
         # 排除不需要的模块 (减小体积)
         "--exclude-module=tkinter",
         "--exclude-module=matplotlib",
         "--exclude-module=pytest",
         "--exclude-module=_pytest",
         "--exclude-module=pytest_asyncio",
+        # 排除重型 ML 依赖 (marker-pdf 可选,其依赖 PyTorch ~2GB 会导致 Windows WiX 打包失败)
+        "--exclude-module=torch",
+        "--exclude-module=surya",
+        "--exclude-module=marker",
+        "--exclude-module=transformers",
+        "--exclude-module=tensorboard",
         # .env 文件 (如果存在)
     ]
 

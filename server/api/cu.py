@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -31,6 +31,37 @@ def _get_executor() -> CUExecutor:
     return _executor
 
 
+# TTL for completed tasks in _tasks dict. Entries older than this are lazily
+# removed by _cleanup_old_tasks() to prevent unbounded memory growth.
+_TASK_TTL_SECONDS = 24 * 60 * 60  # 24 hours
+
+
+def _cleanup_old_tasks() -> None:
+    """Lazily remove tasks older than 24h from the module-level _tasks dict.
+
+    Called at the start of task-creating and task-listing endpoints so the
+    dict does not grow without bound during long-running server processes.
+    Tasks without a parseable ``created_at`` timestamp are left untouched.
+    """
+    now = datetime.now(timezone.utc)
+    expired_ids: list[str] = []
+    for task_id, task in _tasks.items():
+        raw = task.get("created_at", "")
+        if not raw:
+            continue
+        ts = raw.rstrip("Z")
+        try:
+            created_at = datetime.fromisoformat(ts)
+        except (ValueError, TypeError):
+            continue
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        if (now - created_at) > timedelta(seconds=_TASK_TTL_SECONDS):
+            expired_ids.append(task_id)
+    for task_id in expired_ids:
+        del _tasks[task_id]
+
+
 class CreateTaskRequest(BaseModel):
     instruction: str
     steps: list[dict]
@@ -54,6 +85,7 @@ def _get_config() -> CUConfig:
 
 @router.post("/tasks", response_model=CreateTaskResponse)
 async def create_task(req: CreateTaskRequest):
+    _cleanup_old_tasks()
     planner = CUTaskPlanner()
     try:
         plan = planner.plan_manual(req.instruction, req.steps)
@@ -129,11 +161,13 @@ async def get_task_status(task_id: str):
 async def get_audit_log(task_id: str):
     config = _get_config()
     logger = AuditLogger(log_dir=config.audit_log_dir)
-    return {"task_id": task_id, "logs": logger.get_task_logs(task_id)}
+    logs = await asyncio.to_thread(logger.get_task_logs, task_id)
+    return {"task_id": task_id, "logs": logs}
 
 
 @router.get("/tasks")
 async def list_tasks():
+    _cleanup_old_tasks()
     return {"tasks": [{"task_id": t["task_id"], "status": t["status"],
                        "instruction": t["plan"].instruction,
                        "step_count": len(t["plan"].steps), "created_at": t["created_at"]}

@@ -1,19 +1,29 @@
 # server/api/kb.py
 """知识库 CRUD API"""
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, field_validator
-from datetime import datetime, timezone
+
+import asyncio
 import hashlib
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, field_validator
 
 from server.config_kb_cu import KBConfig
-from server.kb.storage.repo import DocumentRepo
-from server.kb.storage.inbox import InboxWriter
-from server.kb.storage.frontmatter import FrontMatter, parse_frontmatter
 from server.kb.parser.validator import validate_frontmatter, ValidationError
 from server.kb.retrieval.vectorstore import ChromaVectorStore
+from server.kb.service import (
+    get_document_repo,
+    get_inbox_writer,
+    get_kb_config,
+    get_vector_store,
+)
+from server.kb.storage.frontmatter import FrontMatter, parse_frontmatter
+from server.kb.storage.inbox import InboxWriter
+from server.kb.storage.repo import DocumentRepo
 
 router = APIRouter(prefix="/api/kb", tags=["knowledge-base"])
 
@@ -64,30 +74,31 @@ class ImportResponse(BaseModel):
     message: str = ""
 
 
-def _get_config() -> KBConfig:
-    config = KBConfig()
-    config.ensure_dirs()
-    return config
+def _sync_fts5_index(
+    meta_db: Path, doc_id: str, title: str, content: str, scope: str
+) -> None:
+    """Sync FTS5 index for a single document (designed to run in a worker thread)."""
+    import sqlite3
+    from server.kb.retrieval.hybrid import ensure_fts_table
 
-
-def _get_vector_store(request: Request) -> ChromaVectorStore:
-    """Return the singleton ChromaVectorStore from app.state when available.
-
-    Falls back to per-request construction when the lifespan did not
-    initialize a singleton (e.g. in tests that bypass lifespan).
-    """
-    store = getattr(request.app.state, "vector_store", None)
-    if store is not None:
-        return store
-    config = _get_config()
-    return ChromaVectorStore(persist_dir=config.chroma_dir)
+    meta_db.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(str(meta_db)) as conn:
+        ensure_fts_table(conn)
+        # 先删除旧条目（支持重复审批同一文档的更新场景）
+        conn.execute("DELETE FROM kb_documents_fts WHERE doc_id = ?", (doc_id,))
+        conn.execute(
+            "INSERT INTO kb_documents_fts (doc_id, title, content, scope) "
+            "VALUES (?, ?, ?, ?)",
+            (doc_id, title, content, scope),
+        )
+        conn.commit()
 
 
 @router.post("/import", response_model=ImportResponse)
-async def import_document(req: ImportRequest):
-    config = _get_config()
-    inbox = InboxWriter(inbox_dir=config.inbox_dir)
-
+async def import_document(
+    req: ImportRequest,
+    inbox: InboxWriter = Depends(get_inbox_writer),
+):
     checksum = f"sha256:{hashlib.sha256(req.content.encode()).hexdigest()}"
     fm = FrontMatter(
         id=f"kb-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}",
@@ -101,7 +112,8 @@ async def import_document(req: ImportRequest):
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    pending_id = inbox.stage(
+    pending_id = await asyncio.to_thread(
+        inbox.stage,
         original_filename="manual_input.md",
         converted_md=req.content,
         frontmatter=fm,
@@ -111,19 +123,20 @@ async def import_document(req: ImportRequest):
 
 
 @router.get("/inbox")
-async def list_inbox():
-    config = _get_config()
-    inbox = InboxWriter(inbox_dir=config.inbox_dir)
-    return {"pending": inbox.list_pending()}
+async def list_inbox(inbox: InboxWriter = Depends(get_inbox_writer)):
+    pending = await asyncio.to_thread(inbox.list_pending)
+    return {"pending": pending}
 
 
 @router.post("/inbox/{pending_id}/approve")
-async def approve_document(pending_id: str, request: Request):
-    config = _get_config()
-    inbox = InboxWriter(inbox_dir=config.inbox_dir)
-    repo = DocumentRepo(documents_dir=config.documents_dir)
-
-    pending = inbox.get_pending(pending_id)
+async def approve_document(
+    pending_id: str,
+    inbox: InboxWriter = Depends(get_inbox_writer),
+    repo: DocumentRepo = Depends(get_document_repo),
+    store: ChromaVectorStore = Depends(get_vector_store),
+    config: KBConfig = Depends(get_kb_config),
+):
+    pending = await asyncio.to_thread(inbox.get_pending, pending_id)
     if not pending:
         raise HTTPException(status_code=404, detail="待审核项不存在")
 
@@ -132,18 +145,17 @@ async def approve_document(pending_id: str, request: Request):
     if not fm:
         raise HTTPException(status_code=500, detail="front matter 解析失败")
 
-    repo.save(fm, pending["converted_md"])
-    inbox.remove_pending(pending_id)
+    await asyncio.to_thread(repo.save, fm, pending["converted_md"])
+    await asyncio.to_thread(inbox.remove_pending, pending_id)
 
     # After saving the document, trigger indexing so the document is searchable
     try:
         from server.kb.retrieval.indexer import Indexer
 
-        store = _get_vector_store(request)
         indexer = Indexer(
             repo=repo, vector_store=store, indexes_dir=config.indexes_dir
         )
-        indexer.build_index()
+        await asyncio.to_thread(indexer.build_index)
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(
@@ -153,23 +165,14 @@ async def approve_document(pending_id: str, request: Request):
 
     # Sync FTS5 full-text index so keyword search uses FTS5 instead of brute-force
     try:
-        import sqlite3
-        from server.kb.retrieval.hybrid import ensure_fts_table
-
-        db_path = config.meta_db
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(str(db_path)) as conn:
-            ensure_fts_table(conn)
-            # 先删除旧条目（支持重复审批同一文档的更新场景）
-            conn.execute(
-                "DELETE FROM kb_documents_fts WHERE doc_id = ?", (fm.id,)
-            )
-            conn.execute(
-                "INSERT INTO kb_documents_fts (doc_id, title, content, scope) "
-                "VALUES (?, ?, ?, ?)",
-                (fm.id, fm.title, pending["converted_md"], fm.scope),
-            )
-            conn.commit()
+        await asyncio.to_thread(
+            _sync_fts5_index,
+            config.meta_db,
+            fm.id,
+            fm.title,
+            pending["converted_md"],
+            fm.scope,
+        )
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(
@@ -181,21 +184,23 @@ async def approve_document(pending_id: str, request: Request):
 
 
 @router.delete("/inbox/{pending_id}")
-async def reject_document(pending_id: str):
-    config = _get_config()
-    inbox = InboxWriter(inbox_dir=config.inbox_dir)
-    inbox.remove_pending(pending_id)
+async def reject_document(
+    pending_id: str,
+    inbox: InboxWriter = Depends(get_inbox_writer),
+):
+    await asyncio.to_thread(inbox.remove_pending, pending_id)
     return {"success": True, "message": "已拒绝并移除"}
 
 
 @router.get("/documents")
-async def list_documents(scope: str | None = None):
-    config = _get_config()
-    repo = DocumentRepo(documents_dir=config.documents_dir)
-    doc_ids = repo.list_all()
+async def list_documents(
+    scope: str | None = None,
+    repo: DocumentRepo = Depends(get_document_repo),
+):
+    doc_ids = await asyncio.to_thread(repo.list_all)
     docs = []
     for doc_id in doc_ids:
-        fm, _ = repo.read(doc_id)
+        fm, _ = await asyncio.to_thread(repo.read, doc_id)
         if scope and fm.scope != scope:
             continue
         docs.append({"id": fm.id, "title": fm.title, "type": fm.type, "scope": fm.scope})
@@ -203,12 +208,14 @@ async def list_documents(scope: str | None = None):
 
 
 @router.get("/documents/{doc_id}")
-async def get_document(doc_id: str, scope: str | None = None):
-    config = _get_config()
-    repo = DocumentRepo(documents_dir=config.documents_dir)
-    if not repo.exists(doc_id):
+async def get_document(
+    doc_id: str,
+    scope: str | None = None,
+    repo: DocumentRepo = Depends(get_document_repo),
+):
+    if not await asyncio.to_thread(repo.exists, doc_id):
         raise HTTPException(status_code=404, detail="文档不存在")
-    fm, body = repo.read(doc_id)
+    fm, body = await asyncio.to_thread(repo.read, doc_id)
     if scope and fm.scope != scope:
         raise HTTPException(status_code=404, detail="文档不存在")
     return {
@@ -219,31 +226,39 @@ async def get_document(doc_id: str, scope: str | None = None):
 
 
 @router.delete("/documents/{doc_id}")
-async def delete_document(doc_id: str, scope: str | None = None):
-    config = _get_config()
-    repo = DocumentRepo(documents_dir=config.documents_dir)
-    if not repo.exists(doc_id):
+async def delete_document(
+    doc_id: str,
+    scope: str | None = None,
+    repo: DocumentRepo = Depends(get_document_repo),
+):
+    if not await asyncio.to_thread(repo.exists, doc_id):
         raise HTTPException(status_code=404, detail="文档不存在")
     if scope:
-        fm, _ = repo.read(doc_id)
+        fm, _ = await asyncio.to_thread(repo.read, doc_id)
         if fm.scope != scope:
             raise HTTPException(status_code=404, detail="文档不存在")
-    repo.delete(doc_id)
+    await asyncio.to_thread(repo.delete, doc_id)
     return {"success": True, "message": "文档已删除"}
 
 
 @router.get("/search")
-async def search_documents(query: str, scope: str = "private", top_k: int = 5, request: Request = None):
+async def search_documents(
+    query: str,
+    scope: str = "private",
+    top_k: int = 5,
+    repo: DocumentRepo = Depends(get_document_repo),
+    store: ChromaVectorStore = Depends(get_vector_store),
+):
     """混合检索文档"""
     if not query or not query.strip():
         return JSONResponse(status_code=400, content={"error": "query must not be empty"})
     top_k = max(1, min(50, top_k))  # Clamp to [1, 50]
     from server.kb.retrieval.hybrid import HybridSearcher
-    config = _get_config()
-    repo = DocumentRepo(documents_dir=config.documents_dir)
-    store = _get_vector_store(request)
+
     searcher = HybridSearcher(repo=repo, vector_store=store)
-    results = searcher.search(query=query, scope=scope, top_k=top_k)
+    results = await asyncio.to_thread(
+        searcher.search, query=query, scope=scope, top_k=top_k
+    )
     return {"results": [{
         "doc_id": r.doc_id, "title": r.title, "chunk_text": r.chunk_text,
         "score": r.score, "source_method": r.source_method, "scope": r.scope, "tags": r.tags,

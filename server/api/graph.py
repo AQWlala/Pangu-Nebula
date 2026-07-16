@@ -1,38 +1,30 @@
 # server/api/graph.py
 """知识图谱查询 API"""
 from __future__ import annotations
-from fastapi import APIRouter, Request
-from server.config_kb_cu import KBConfig
+
+import asyncio
+
+from fastapi import APIRouter, Depends
+
 from server.kb.graph.kuzu_store import KuzuGraphStore
+from server.kb.service import get_document_repo, get_graph_store
+from server.kb.storage.repo import DocumentRepo
 
 router = APIRouter(prefix="/api/graph", tags=["knowledge-graph"])
 
 
-def _get_graph_store(request: Request) -> KuzuGraphStore:
-    """Return the singleton KuzuGraphStore from app.state when available.
-
-    Falls back to per-request construction when the lifespan did not
-    initialize a singleton (e.g. in tests that bypass lifespan).
-    """
-    store = getattr(request.app.state, "graph_store", None)
-    if store is not None:
-        return store
-    config = KBConfig()
-    # 注意：不调用 ensure_dirs()，因为 KuzuGraphStore 会自行创建父目录，
-    # 且 kuzu 0.11.3 不允许 db_dir 本身预先存在为目录。
-    store = KuzuGraphStore(db_dir=config.kuzu_dir)
-    store.init_schema()
-    return store
-
-
 @router.get("/documents")
-async def get_document_graph(request: Request, scope: str = "private", depth: int = 2):
+async def get_document_graph(
+    scope: str = "private",
+    depth: int = 2,
+    store: KuzuGraphStore = Depends(get_graph_store),
+):
     depth = max(1, min(3, depth))  # Clamp to [1, 3]
-    store = _get_graph_store(request)
-    docs = store.list_documents(scope=scope)
+    docs = await asyncio.to_thread(store.list_documents, scope=scope)
     nodes = [{"id": d["id"], "label": d["title"], "type": "document",
               "scope": d["scope"], "doc_type": d["type"], "confidence": d["confidence"]} for d in docs]
     # 单次 Cypher 查询获取所有关系，消除 N+1 调用（之前为每个 doc 调用一次 get_relations）。
+    all_relations = await asyncio.to_thread(store.get_all_relations, scope=scope)
     edges = [
         {
             "source": rel["source_doc_id"],
@@ -40,7 +32,7 @@ async def get_document_graph(request: Request, scope: str = "private", depth: in
             "relation_type": rel["relation_type"],
             "weight": rel["confidence"],
         }
-        for rel in store.get_all_relations(scope=scope)
+        for rel in all_relations
     ]
     return {"nodes": nodes, "edges": edges}
 
@@ -51,31 +43,33 @@ async def get_entity_graph(scope: str = "private", min_weight: float = 0.5):
 
 
 @router.get("/timeline")
-async def get_timeline_graph(request: Request, scope: str = "private"):
-    store = _get_graph_store(request)
-    docs = store.list_documents(scope=scope)
+async def get_timeline_graph(
+    scope: str = "private",
+    store: KuzuGraphStore = Depends(get_graph_store),
+):
+    docs = await asyncio.to_thread(store.list_documents, scope=scope)
     nodes = [{"id": d["id"], "label": d["title"], "type": "document", "scope": d["scope"]} for d in docs]
     return {"nodes": nodes, "edges": []}
 
 
 @router.post("/rebuild")
-async def rebuild_graph(request: Request, scope: str | None = None):
-    config = KBConfig()
-    # 只创建 documents_dir（KuzuGraphStore 自行处理 kuzu_dir 父目录）
-    config.documents_dir.mkdir(parents=True, exist_ok=True)
-    store = _get_graph_store(request)
-    from server.kb.storage.repo import DocumentRepo
+async def rebuild_graph(
+    scope: str | None = None,
+    store: KuzuGraphStore = Depends(get_graph_store),
+    repo: DocumentRepo = Depends(get_document_repo),
+):
     from server.kb.graph.relation_extractor import RelationExtractor
-    repo = DocumentRepo(documents_dir=config.documents_dir)
 
     # 收集所有文档并写入节点
     documents = []
     count = 0
-    for doc_id in repo.list_all():
-        fm, _ = repo.read(doc_id)
+    for doc_id in await asyncio.to_thread(repo.list_all):
+        fm, _ = await asyncio.to_thread(repo.read, doc_id)
         if scope and fm.scope != scope:
             continue
-        store.add_document(fm.id, fm.title, fm.type, fm.scope, fm.confidence, fm.id)
+        await asyncio.to_thread(
+            store.add_document, fm.id, fm.title, fm.type, fm.scope, fm.confidence, fm.id
+        )
         documents.append(fm)
         count += 1
 
@@ -86,7 +80,8 @@ async def rebuild_graph(request: Request, scope: str | None = None):
         candidates = extractor.recommend_relations(doc, documents[i + 1:])
         for rel in candidates:
             try:
-                store.add_relation(
+                await asyncio.to_thread(
+                    store.add_relation,
                     source_id=rel.source_id,
                     target_id=rel.target_id,
                     rel_type=rel.relation_type,

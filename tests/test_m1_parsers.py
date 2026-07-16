@@ -25,6 +25,7 @@ def test_markdown_parser_plain_text():
     assert "纯文本无格式" in result.content
 
 def test_excel_parser_basic(tmp_path):
+    pytest.importorskip("openpyxl")
     import pandas as pd
     excel_path = tmp_path / "test.xlsx"
     df = pd.DataFrame({"A": [1, 2], "B": ["x", "y"]})

@@ -374,17 +374,20 @@ def test_25_sidecar_shutdown_endpoint():
             proc.wait()
 
 
-def test_26_sidecar_shutdown_whitelisted():
-    """/shutdown 端点在认证白名单中 (Tauri 需要在无 token 时也能关闭 sidecar)"""
+def test_26_sidecar_shutdown_requires_auth():
+    """/shutdown 端点需要 Bearer token 认证 (安全修复 S2)"""
     proc, port, token = _start_sidecar()
 
     try:
         time.sleep(2)
 
-        # /shutdown 在白名单中,无 token 也能访问 (设计如此)
-        # 参考 server/main.py: unauthenticated_paths = {"/health/ready", "/health", "/shutdown"}
+        # /shutdown 不在白名单中,无 token 返回 401 (安全修复 S2)
         status, _ = _http_post(f"http://127.0.0.1:{port}/shutdown", token=None)
-        assert status == 200, f"/shutdown without token should return 200 (whitelisted), got {status}"
+        assert status == 401, f"/shutdown without token should return 401, got {status}"
+
+        # 带 token 的 /shutdown 返回 200
+        status, _ = _http_post(f"http://127.0.0.1:{port}/shutdown", token=token)
+        assert status == 200, f"/shutdown with token should return 200, got {status}"
     finally:
         # 清理: sidecar 已被 /shutdown 关闭
         if proc.poll() is None:

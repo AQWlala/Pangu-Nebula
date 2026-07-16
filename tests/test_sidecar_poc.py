@@ -186,6 +186,7 @@ def test_07_shutdown_endpoint(sidecar_process):
     url = f"http://127.0.0.1:{info['port']}/shutdown"
     req = urllib.request.Request(url, method="POST")
     req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", f"Bearer {info['token']}")
 
     try:
         with urllib.request.urlopen(req, timeout=2) as resp:

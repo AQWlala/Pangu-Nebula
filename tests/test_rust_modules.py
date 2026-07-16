@@ -111,7 +111,9 @@ def test_browser_use_rust_status_mock_mode():
     # 重新加载模块确保干净状态
     if "server.services.browser_use_rust" in sys.modules:
         del sys.modules["server.services.browser_use_rust"]
-    from server.services.browser_use_rust import browser_use_rust
+    from server.services.browser_use_rust import browser_use_rust, HAS_RUST
+    if HAS_RUST:
+        pytest.skip("Rust 模块已编译，mock 模式测试不适用")
 
     status = browser_use_rust.get_status()
     # 在测试环境中 Rust 模块未编译,应为 mock 模式
@@ -125,7 +127,9 @@ async def test_browser_use_rust_cdp_connect_mock():
     """cdp_connect 在 mock 模式下应返回 mock 会话 ID"""
     if "server.services.browser_use_rust" in sys.modules:
         del sys.modules["server.services.browser_use_rust"]
-    from server.services.browser_use_rust import BrowserUseRust
+    from server.services.browser_use_rust import BrowserUseRust, HAS_RUST
+    if HAS_RUST:
+        pytest.skip("Rust 模块已编译，mock 模式测试不适用")
 
     svc = BrowserUseRust()
     result = await svc.cdp_connect("ws://127.0.0.1:9222/devtools/browser/test")
@@ -144,7 +148,9 @@ async def test_browser_use_rust_cdp_connect_mock():
 
 async def test_browser_use_rust_aria_listen_mock():
     """aria_listen 在 mock 模式下应返回示例 ARIA 元素列表"""
-    from server.services.browser_use_rust import BrowserUseRust
+    from server.services.browser_use_rust import BrowserUseRust, HAS_RUST
+    if HAS_RUST:
+        pytest.skip("Rust 模块已编译，mock 模式测试不适用")
 
     svc = BrowserUseRust()
     result = await svc.aria_listen("page-001")

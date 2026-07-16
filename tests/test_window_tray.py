@@ -219,6 +219,7 @@ def test_15_sidecar_shutdown_on_window_destroy(sidecar):
     url = f"http://127.0.0.1:{sidecar['port']}/shutdown"
     req = urllib.request.Request(url, method="POST")
     req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", f"Bearer {sidecar['token']}")
     with urllib.request.urlopen(req, timeout=2) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     assert data["ok"] is True

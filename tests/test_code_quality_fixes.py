@@ -71,6 +71,7 @@ def test_checksum_computed_when_not_sha256_format():
 def test_excel_parser_confidence_graded_empty_table(tmp_path):
     """Empty table → 0.5 (not 0.95 as before)."""
     pytest.importorskip("pandas")
+    pytest.importorskip("openpyxl")
     import pandas as pd
     from server.kb.parser.office_parser import ExcelParser
 
@@ -86,6 +87,7 @@ def test_excel_parser_confidence_graded_empty_table(tmp_path):
 def test_excel_parser_confidence_full_conversion(tmp_path):
     """All cells converted (ratio >= 0.95) → 0.95."""
     pytest.importorskip("pandas")
+    pytest.importorskip("openpyxl")
     import pandas as pd
     from server.kb.parser.office_parser import ExcelParser
 
@@ -103,6 +105,7 @@ def test_excel_parser_confidence_full_conversion(tmp_path):
 def test_excel_parser_confidence_is_graded_not_binary(tmp_path):
     """Confidence must be one of the graded values, never collapsed to 0.6."""
     pytest.importorskip("pandas")
+    pytest.importorskip("openpyxl")
     import pandas as pd
     from server.kb.parser.office_parser import ExcelParser
 

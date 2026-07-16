@@ -1,5 +1,9 @@
 # tests/test_kb_indexing.py
+import pytest
 from pathlib import Path
+
+# chromadb 是可选依赖，未安装时跳过而非报错
+pytest.importorskip("chromadb")
 
 
 def test_approve_triggers_indexing(tmp_path):

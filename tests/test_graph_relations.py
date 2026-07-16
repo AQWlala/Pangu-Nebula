@@ -1,6 +1,10 @@
 # tests/test_graph_relations.py
+import pytest
 import tempfile
 from pathlib import Path
+
+# kuzu 是可选依赖，未安装时跳过而非报错
+pytest.importorskip("kuzu")
 
 
 def test_rebuild_graph_creates_relations():

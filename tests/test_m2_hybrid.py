@@ -1,6 +1,10 @@
 # tests/test_m2_hybrid.py
 import pytest
 from pathlib import Path
+
+# chromadb 是可选依赖，未安装时跳过而非报错
+pytest.importorskip("chromadb")
+
 from server.kb.retrieval.hybrid import HybridSearcher, SearchResult
 from server.kb.retrieval.vectorstore import ChromaVectorStore
 from server.kb.storage.repo import DocumentRepo

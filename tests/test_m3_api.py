@@ -1,6 +1,10 @@
 # tests/test_m3_api.py
 import pytest
 from httpx import AsyncClient, ASGITransport
+
+# kuzu 是可选依赖，未安装时跳过而非报错
+pytest.importorskip("kuzu")
+
 from server.main import app
 
 

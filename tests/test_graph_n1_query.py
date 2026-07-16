@@ -3,6 +3,9 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+# kuzu 是可选依赖，未安装时跳过而非报错
+pytest.importorskip("kuzu")
+
 from server.kb.graph.kuzu_store import KuzuGraphStore
 from server.main import app
 

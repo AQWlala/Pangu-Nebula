@@ -1,6 +1,10 @@
 # tests/test_m3_kuzu.py
 import pytest
 from pathlib import Path
+
+# kuzu 是可选依赖，未安装时跳过而非报错
+pytest.importorskip("kuzu")
+
 from server.kb.graph.kuzu_store import KuzuGraphStore
 
 

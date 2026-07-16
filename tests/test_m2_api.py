@@ -1,6 +1,10 @@
 # tests/test_m2_api.py
 import pytest
 from httpx import AsyncClient, ASGITransport
+
+# chromadb 是可选依赖（搜索端点需要），未安装时跳过
+pytest.importorskip("chromadb")
+
 from server.main import app
 
 
@@ -14,10 +18,9 @@ async def client():
 @pytest.mark.asyncio
 async def test_search_endpoint(client, tmp_path, monkeypatch):
     from server.config_kb_cu import KBConfig
-    monkeypatch.setattr(KBConfig, "kb_root", tmp_path / "kb")
-    monkeypatch.setattr(KBConfig, "documents_dir", tmp_path / "kb" / "documents")
-    monkeypatch.setattr(KBConfig, "inbox_dir", tmp_path / "kb" / "_inbox")
-    monkeypatch.setattr(KBConfig, "chroma_dir", tmp_path / "kb" / "indexes" / "chroma")
+    config = KBConfig(kb_root=tmp_path / "kb")
+    config.ensure_dirs()
+    monkeypatch.setattr("server.kb.service.get_kb_config", lambda *a, **kw: config)
 
     import_resp = await client.post("/api/kb/import", json={
         "content": "# Python 编程\n\nPython 是一门编程语言",

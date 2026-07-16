@@ -1,6 +1,10 @@
 # tests/test_m1_parsers.py
 import pytest
 from pathlib import Path
+
+# pandas 是可选依赖（ExcelParser 需要），未安装时跳过 Excel 相关测试
+pytest.importorskip("pandas")
+
 from server.kb.parser.markdown_parser import MarkdownParser
 from server.kb.parser.pdf_parser import PdfParser
 from server.kb.parser.office_parser import ExcelParser, WordParser

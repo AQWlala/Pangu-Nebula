@@ -23,8 +23,10 @@ class KBConfig:
     def ensure_dirs(self) -> None:
         for d in [self.kb_root, self.documents_dir, self.inbox_dir,
                   self.sandbox_dir, self.archive_dir, self.indexes_dir,
-                  self.chroma_dir, self.kuzu_dir]:
+                  self.chroma_dir]:
             d.mkdir(parents=True, exist_ok=True)
+        # 注意：kuzu_dir 不在此列表中，因为 kuzu 在该路径创建的是文件而非目录，
+        # 预先创建为目录会导致 kuzu 报错 "Database path cannot be a directory"。
 
 
 @dataclass

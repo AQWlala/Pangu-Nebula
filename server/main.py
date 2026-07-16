@@ -49,6 +49,7 @@ from .api.update import router as update_router
 from .api.health import router as health_check_router
 from .api.cu import router as cu_router
 from .api.kb import router as kb_router
+from .api.graph import router as graph_router
 from .tools import builtin_tools  # noqa: F401
 
 load_dotenv()
@@ -166,6 +167,7 @@ app.include_router(update_router)
 app.include_router(health_check_router)
 app.include_router(cu_router)
 app.include_router(kb_router)
+app.include_router(graph_router)
 
 
 @app.get("/health")

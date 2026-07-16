@@ -19,9 +19,15 @@ class KuzuGraphStore:
 
     def __init__(self, db_dir: Path):
         self.db_dir = db_dir
-        # 注意：kuzu 要求 db_dir 本身不能预先存在，它会在该路径下创建数据库；
-        # 此处只确保父目录存在，db_dir 留给 kuzu 自己创建。
+        # kuzu 在 db_dir 路径创建数据库文件（非目录）。
+        # 如果 db_dir 已存在为空目录（可能由 ensure_dirs() 创建），删除它让 kuzu 自行创建文件。
+        # 如果 db_dir 已存在为文件（已有数据库），保持原样。
         self.db_dir.parent.mkdir(parents=True, exist_ok=True)
+        if self.db_dir.exists() and self.db_dir.is_dir():
+            try:
+                self.db_dir.rmdir()  # 只删除空目录
+            except OSError:
+                pass  # 目录非空，保持原样
         self._db = None
         self._conn = None
 

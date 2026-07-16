@@ -12,6 +12,7 @@ from server.cu.safety.audit_log import AuditLogger
 from server.cu.safety.rollback import RollbackManager
 from server.cu.verifier import CUResultVerifier
 from server.cu.knowledge_bridge import CUKnowledgeBridge
+from server.kb.storage.inbox import InboxWriter
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +224,7 @@ class CUExecutor:
                 "result_data": result.get("result_data"),
             })
 
-        bridge = CUKnowledgeBridge()
+        bridge = CUKnowledgeBridge(inbox_writer=InboxWriter(inbox_dir=kb_config.inbox_dir))
         candidates = bridge.action_to_knowledge_sync(
             task_id=task_id,
             step_results=step_results,

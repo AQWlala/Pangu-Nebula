@@ -32,11 +32,16 @@ async def get_document_graph(request: Request, scope: str = "private", depth: in
     docs = store.list_documents(scope=scope)
     nodes = [{"id": d["id"], "label": d["title"], "type": "document",
               "scope": d["scope"], "doc_type": d["type"], "confidence": d["confidence"]} for d in docs]
-    edges = []
-    for doc in docs:
-        for rel in store.get_relations(doc["id"]):
-            edges.append({"source": doc["id"], "target": rel["target_id"],
-                          "relation_type": rel["rel_type"], "weight": rel["weight"]})
+    # 单次 Cypher 查询获取所有关系，消除 N+1 调用（之前为每个 doc 调用一次 get_relations）。
+    edges = [
+        {
+            "source": rel["source_doc_id"],
+            "target": rel["target_doc_id"],
+            "relation_type": rel["relation_type"],
+            "weight": rel["confidence"],
+        }
+        for rel in store.get_all_relations(scope=scope)
+    ]
     return {"nodes": nodes, "edges": edges}
 
 

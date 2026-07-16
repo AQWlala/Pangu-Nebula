@@ -28,10 +28,33 @@ def clean_app_state(kb_config, monkeypatch):
     """Inject a tmp_path KBConfig into app.state and clean up afterwards.
 
     - Mocks init_db to avoid real database side effects during lifespan.
+    - Mocks ChromaVectorStore/KuzuGraphStore __init__ to avoid requiring
+      chromadb/kuzu optional dependencies — the test verifies singleton
+      lifecycle logic, not store internals.
     - Pre-sets app.state.kb_config so lifespan uses tmp_path, not ~/.pangu-nebula.
     - Tears down app.state.vector_store / graph_store / kb_config after each test
       so other tests (which bypass lifespan) fall back to per-request construction.
     """
+    from server.kb.retrieval.vectorstore import ChromaVectorStore
+    from server.kb.graph.kuzu_store import KuzuGraphStore
+
+    # Mock __init__ so instantiation doesn't require chromadb/kuzu.
+    # Set minimal internal attributes so downstream method calls don't crash.
+    def _mock_vs_init(self, **kw):
+        self._client = None
+        self._collection = None
+
+    def _mock_gs_init(self, **kw):
+        self._conn = None
+        self._db = None
+
+    monkeypatch.setattr(ChromaVectorStore, "__init__", _mock_vs_init)
+    monkeypatch.setattr(KuzuGraphStore, "__init__", _mock_gs_init)
+    monkeypatch.setattr(KuzuGraphStore, "init_schema", lambda self: None)
+    # Mock DB-querying methods to return empty results (avoids needing kuzu)
+    monkeypatch.setattr(KuzuGraphStore, "list_documents", lambda self, **kw: [])
+    monkeypatch.setattr(KuzuGraphStore, "get_all_relations", lambda self, **kw: [])
+
     async def _noop_init_db():
         pass
 
@@ -94,13 +117,15 @@ def test_requests_do_not_construct_new_stores(clean_app_state):
     """No new ChromaVectorStore/KuzuGraphStore instances during requests."""
     from server.kb.retrieval.vectorstore import ChromaVectorStore
     from server.kb.graph.kuzu_store import KuzuGraphStore
+    from unittest.mock import MagicMock
 
     with TestClient(app) as client:
-        # Wrap __init__ so we can count new instantiations without breaking them
+        # Replace __init__ with a no-op mock to count calls.
+        # No wraps — original __init__ requires chromadb/kuzu which may be absent.
         with patch.object(ChromaVectorStore, "__init__",
-                          wraps=ChromaVectorStore.__init__) as vs_init, \
+                          return_value=None) as vs_init, \
              patch.object(KuzuGraphStore, "__init__",
-                          wraps=KuzuGraphStore.__init__) as gs_init:
+                          return_value=None) as gs_init:
             client.get("/api/graph/documents", params={"scope": "private"})
             client.get("/api/graph/timeline", params={"scope": "private"})
 

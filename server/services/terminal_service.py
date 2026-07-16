@@ -10,9 +10,37 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
+import sys
 import time
 import uuid
 from typing import Any
+
+
+# F3: shell 白名单 — 防止指定任意可执行文件(如 calc.exe / ./evil.sh)
+# 通过 shutil.which 解析完整路径后校验 basename,防止路径遍历绕过
+_ALLOWED_SHELLS: dict[str, set[str]] = {
+    "win32": {"cmd.exe", "powershell.exe", "pwsh.exe"},
+    "linux": {"bash", "sh", "zsh", "fish", "dash"},
+    "darwin": {"bash", "sh", "zsh", "fish"},
+}
+
+
+def _validate_shell(shell: str) -> tuple[bool, str]:
+    """校验 shell 是否在白名单内,防止指定任意可执行文件。
+
+    使用 shutil.which 解析完整路径后校验 basename,防止 ./evil.sh 绕过。
+    返回 (True, resolved_path) 或 (False, error_message)。
+    """
+    resolved = shutil.which(shell)
+    if resolved is None:
+        return False, f"shell not found: {shell}"
+    basename = os.path.basename(resolved).lower()
+    allowed = _ALLOWED_SHELLS.get(sys.platform, set())
+    if basename not in allowed:
+        return False, f"shell not allowed: {shell} (resolved: {resolved}). Allowed: {allowed}"
+    return True, resolved
 
 
 class TerminalService:
@@ -78,8 +106,13 @@ class TerminalService:
             }
 
         # 真实 PTY 模式(依赖可用时)
+        # F3: shell 白名单校验,防止指定任意可执行文件
+        ok, result = _validate_shell(shell)
+        if not ok:
+            return {"ok": False, "data": None, "error": result}
+
         try:
-            proc = await self._spawn_pty(shell, cols, rows)
+            proc = await self._spawn_pty(result, cols, rows)
         except Exception as e:
             # 启动失败时回退到 mock 模式
             session_id = f"mock-{session_id}"

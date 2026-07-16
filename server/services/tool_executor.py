@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any
 
@@ -27,20 +28,25 @@ from .audit_logger import audit_logger
 from .injection_guard import injection_guard
 
 
+logger = logging.getLogger(__name__)
+
+
 # 工具所需额外权限映射 (基础权限 tools_enabled 对所有工具生效,此处只列额外项)
 # key=tool_name, value=所需 persona 能力字段名
 _TOOL_EXTRA_PERMS: dict[str, list[str]] = {
     # Phase 2: execute_command 需要 terminal_allowed
     "execute_command": ["terminal_allowed"],
-    # Phase 5: browser_* / computer_* 需要 browser_use_enabled
+    # Phase 5: browser_* 需要 browser_use_enabled
     "browser_navigate": ["browser_use_enabled"],
     "browser_screenshot": ["browser_use_enabled"],
     "browser_click": ["browser_use_enabled"],
     "browser_type": ["browser_use_enabled"],
-    "computer_screenshot": ["browser_use_enabled"],
-    "computer_click": ["browser_use_enabled"],
-    "computer_type_text": ["browser_use_enabled"],
-    "computer_get_a11y_tree": ["browser_use_enabled"],
+    # v2.2.1 F7: computer_* 改用独立权限字段 computer_use_enabled
+    # (与 browser_* 解耦,默认关闭,安全优先)
+    "computer_screenshot": ["computer_use_enabled"],
+    "computer_click": ["computer_use_enabled"],
+    "computer_type_text": ["computer_use_enabled"],
+    "computer_get_a11y_tree": ["computer_use_enabled"],
 }
 
 # 工具对应的 InjectionGuard 检测 context
@@ -55,6 +61,9 @@ _TOOL_GUARD_CONTEXT: dict[str, str] = {
 
 # 审计日志输入摘要最大长度
 _SUMMARY_MAX = 500
+
+# v2.2.1 S5: 注入检查递归深度上限 (防止栈溢出)
+_INJ_MAX_DEPTH = 10
 
 
 class ToolExecutor:
@@ -79,21 +88,37 @@ class ToolExecutor:
     def _check_injection(self, name: str, arguments: dict) -> tuple[bool, str, list[dict]]:
         """注入防护检查
 
-        对所有字符串类型参数按工具对应的 context 检测。
+        对所有字符串类型参数(包括 dict/list 嵌套结构)按工具对应的 context 检测。
         返回 (safe, threat_msg, threats)。safe=True 时其余字段为空。
         检测到任何威胁即拒绝 (安全优先)。
+
+        v2.2.1 S5: 递归遍历 dict/list 中的所有字符串值,防止嵌套注入 payload。
+        递归深度限制为 _INJ_MAX_DEPTH (10) 层,防止栈溢出。
         """
         context = _TOOL_GUARD_CONTEXT.get(name, "general")
         threats_all: list[dict] = []
 
+        def _check_value(value: Any, path: str, depth: int) -> None:
+            """递归检查值,将威胁追加到 threats_all"""
+            if depth > _INJ_MAX_DEPTH:
+                return
+            if isinstance(value, str):
+                result = injection_guard.check(value, context=context)
+                if not result["safe"]:
+                    for t in result["threats"]:
+                        t["arg"] = path or "root"
+                    threats_all.extend(result["threats"])
+            elif isinstance(value, dict):
+                for k, v in value.items():
+                    new_path = f"{path}.{k}" if path else k
+                    _check_value(v, new_path, depth + 1)
+            elif isinstance(value, list):
+                for i, item in enumerate(value):
+                    new_path = f"{path}[{i}]"
+                    _check_value(item, new_path, depth + 1)
+
         for key, val in arguments.items():
-            if not isinstance(val, str):
-                continue
-            result = injection_guard.check(val, context=context)
-            if not result["safe"]:
-                for t in result["threats"]:
-                    t["arg"] = key
-                threats_all.extend(result["threats"])
+            _check_value(val, key, 0)
 
         if threats_all:
             first = threats_all[0]
@@ -150,7 +175,28 @@ class ToolExecutor:
         # 4. 执行
         try:
             tool = get_tool(name)
-            result = await tool.execute(**arguments)
+
+            # v2.2.1 F5: 参数白名单过滤 — 防止 LLM 注入 allow_network 等敏感参数
+            # 仅当工具显式声明 allowed_kwargs (非空集合) 时才过滤,未声明的工具透传 (向后兼容)
+            if hasattr(tool, "allowed_kwargs") and tool.allowed_kwargs:
+                filtered_args = {
+                    k: v for k, v in arguments.items() if k in tool.allowed_kwargs
+                }
+            else:
+                filtered_args = arguments
+            # 如果有被过滤的参数,记录审计日志
+            filtered_keys = set(arguments.keys()) - set(filtered_args.keys())
+            if filtered_keys:
+                logger.warning(
+                    "filtered disallowed kwargs for tool %s: %s",
+                    name,
+                    sorted(filtered_keys),
+                )
+
+            # v2.2.1 F1: 注入 persona 供 file_read/file_write 的 PathGuard 使用
+            # persona 不在 allowed_kwargs 中, 但作为内部注入参数通过 **kwargs 传递,
+            # 不会与 F5 的 LLM 参数过滤冲突 (filtered_args 已先于 persona 处理)
+            result = await tool.execute(**filtered_args, persona=persona)
             duration_ms = int((time.time() - start) * 1000)
             output = result.output if result.success else (result.error or result.output)
 
@@ -210,9 +256,15 @@ class ToolExecutor:
                     success=success,
                     details=all_details,
                 )
-        except Exception:
-            # 审计日志失败不应阻断工具执行流程
-            pass
+        except Exception as audit_exc:
+            # v2.2.1 S6: 审计失败不再静默 — 安全事件必须有日志可查
+            # 但审计失败仍不阻断工具执行流程 (主流程已先返回)
+            logger.error(
+                "audit log failed for tool %s: %s",
+                name,
+                audit_exc,
+                exc_info=True,
+            )
 
 
 # 模块级单例

@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -158,7 +159,8 @@ class KnowledgeService:
                 "section": "",
             })
         if chunks:
-            store.upsert(chunks)
+            # v2.2.1 S1: 用 asyncio.to_thread 包装同步 store 操作,避免阻塞事件循环
+            await asyncio.to_thread(store.upsert, chunks)
         return {
             "doc_id": doc_id,
             "chunks": len(chunks),
@@ -185,7 +187,10 @@ class KnowledgeService:
             return []
         store = self._get_store()
         try:
-            return store.query(query, scope=scope, top_k=top_k)
+            # v2.2.1 S1: 用 asyncio.to_thread 包装同步 store 操作,避免阻塞事件循环
+            return await asyncio.to_thread(
+                store.query, query, scope=scope, top_k=top_k
+            )
         except Exception as exc:
             logger.warning(f"knowledge search failed: {exc}")
             return []
@@ -194,14 +199,21 @@ class KnowledgeService:
         """删除文档的所有向量记录。"""
         store = self._get_store()
         try:
-            store.delete_by_doc_id(doc_id)
+            # v2.2.1 S1: 用 asyncio.to_thread 包装同步 store 操作,避免阻塞事件循环
+            await asyncio.to_thread(store.delete_by_doc_id, doc_id)
             return True
         except Exception as exc:
             logger.warning(f"knowledge delete failed: {exc}")
             return False
 
     def get_status(self) -> dict:
-        """返回知识库状态摘要。"""
+        """返回知识库状态摘要。
+
+        v2.2.1 S1 说明: 本方法保持同步签名(被 kb.py/rag.py 等多处同步调用,
+        且测试用 MagicMock mock)。store.count() 通常为本地内存/索引元数据查询,
+        耗时极短,不构成事件循环阻塞风险;若未来 store.count() 变重,应新增
+        async get_status_async() 而非破坏现有 sync 签名。
+        """
         store = self._get_store()
         count = 0
         try:

@@ -11,12 +11,51 @@
 依赖 ptyprocess/winpty 可选,缺失时自动降级为 mock 模式。
 """
 
-from fastapi import APIRouter, HTTPException
+import secrets
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from ..services.terminal_service import TerminalService
 
-router = APIRouter(prefix="/terminal", tags=["terminal"])
+
+def verify_terminal_access(request: Request) -> None:
+    """F2: 路由级鉴权依赖(纵深防御)
+
+    检查 Authorization Bearer token 是否匹配 sidecar_token。
+    - pywebview 模式(sidecar_token 为空): 允许访问(向后兼容)
+    - tauri 模式(sidecar_token 已设置): 要求有效 Bearer token
+
+    即使 sidecar_token_auth middleware 被绕过或移除,此依赖仍提供保护。
+    鉴权失败返回 401。
+    """
+    from ..main import settings
+
+    token = settings.sidecar_token
+    if not token:
+        # pywebview 模式: 无 token 配置,允许访问
+        return
+    # tauri 模式: 验证 Bearer token
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        provided = auth_header[7:]
+        if secrets.compare_digest(provided, token):
+            return
+    raise HTTPException(
+        status_code=401,
+        detail={
+            "ok": False,
+            "data": None,
+            "error": "Unauthorized: invalid or missing Bearer token",
+        },
+    )
+
+
+router = APIRouter(
+    prefix="/terminal",
+    tags=["terminal"],
+    dependencies=[Depends(verify_terminal_access)],
+)
 
 _terminal = TerminalService()
 

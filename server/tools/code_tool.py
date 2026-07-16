@@ -45,6 +45,9 @@ class ExecuteCodeTool(BaseTool):
         },
         "required": ["code"],
     }
+    # v2.2.1 F5: 不含 allow_network — 网络权限由 persona.sandbox_allow_network 在
+    # ToolExecutor 权限层决定,LLM 不应通过 kwargs 注入。
+    allowed_kwargs: set[str] = {"code", "timeout"}
 
     _MAX_TIMEOUT = 180
     _MEMORY_LIMIT_MB = 256

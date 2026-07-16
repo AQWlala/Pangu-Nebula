@@ -24,6 +24,8 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("personas", "sandbox_allow_network", "BOOLEAN DEFAULT 0"),
     ("personas", "terminal_allowed", "BOOLEAN DEFAULT 0"),
     ("personas", "browser_use_enabled", "BOOLEAN DEFAULT 0"),
+    # v2.2.1 F7: computer_* 工具独立权限字段 (默认关闭,安全优先)
+    ("personas", "computer_use_enabled", "BOOLEAN DEFAULT 0"),
     # v2.2.0 Conversation 状态
     ("conversations", "status", "VARCHAR(20) DEFAULT 'idle'"),
     # v2.2.0 Message 工具调用持久化

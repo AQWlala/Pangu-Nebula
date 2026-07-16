@@ -2,7 +2,20 @@ import os
 
 import httpx
 
+from ..services.path_guard import PathGuard
 from .registry import BaseTool, ToolResult, register_tool
+
+
+def _build_path_guard(persona) -> PathGuard:
+    """根据 persona 配置构建 PathGuard
+
+    persona 通过 tool_executor 的 kwargs 注入; 无 persona 或未配置 allowed_paths
+    时回退到默认白名单, 保持向后兼容。
+    """
+    allowed = getattr(persona, "allowed_paths", None) if persona is not None else None
+    if allowed:
+        return PathGuard(list(allowed))
+    return PathGuard(PathGuard.default_allowed_paths())
 
 
 @register_tool("web_search")
@@ -21,6 +34,8 @@ class WebSearchTool(BaseTool):
         },
         "required": ["query"],
     }
+    # v2.2.1 F5: 仅允许这两个参数,LLM 注入 allow_network 等会被过滤
+    allowed_kwargs: set[str] = {"query", "max_results"}
 
     async def execute(self, query: str, max_results: int = 5, **kwargs) -> ToolResult:
         api_key = os.getenv("WEB_SEARCH_API_KEY", "")
@@ -70,8 +85,15 @@ class FileReadTool(BaseTool):
         },
         "required": ["path"],
     }
+    # v2.2.1 F5
+    allowed_kwargs: set[str] = {"path", "encoding"}
 
     async def execute(self, path: str, encoding: str = "utf-8", **kwargs) -> ToolResult:
+        # v2.2.1 F1: PathGuard 路径白名单校验, 防止路径穿越读取敏感文件
+        guard = _build_path_guard(kwargs.get("persona"))
+        ok, reason = guard.validate(path, write=False)
+        if not ok:
+            return ToolResult(success=False, output="", error=f"PathGuard 拒绝: {reason}")
         try:
             with open(path, "r", encoding=encoding) as f:
                 content = f.read()
@@ -94,10 +116,17 @@ class FileWriteTool(BaseTool):
         },
         "required": ["path", "content"],
     }
+    # v2.2.1 F5
+    allowed_kwargs: set[str] = {"path", "content", "append", "encoding"}
 
     async def execute(
         self, path: str, content: str, append: bool = False, encoding: str = "utf-8", **kwargs
     ) -> ToolResult:
+        # v2.2.1 F1: PathGuard 路径白名单校验, 防止路径穿越写入系统/敏感文件
+        guard = _build_path_guard(kwargs.get("persona"))
+        ok, reason = guard.validate(path, write=True)
+        if not ok:
+            return ToolResult(success=False, output="", error=f"PathGuard 拒绝: {reason}")
         try:
             mode = "a" if append else "w"
             with open(path, mode, encoding=encoding) as f:

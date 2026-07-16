@@ -265,10 +265,10 @@ def test_26_tauri_release_has_latest_json_generation():
     assert "release" in content, "release job missing"
 
 
-def test_27_tauri_release_triggers_on_v21_tags():
-    """tauri-release.yml 在 v2.1.* tag 时触发"""
+def test_27_tauri_release_triggers_on_v2_tags():
+    """tauri-release.yml 在 v2.* tag 时触发 (v2.2.0 起扩展为 v2.* 覆盖所有 v2.x.x)"""
     content = (WORKFLOWS_DIR / "tauri-release.yml").read_text(encoding="utf-8")
-    assert "v2.1.*" in content, "v2.1.* tag trigger missing"
+    assert "v2.*" in content, "v2.* tag trigger missing"
     assert "tags:" in content, "tags trigger missing"
 
 

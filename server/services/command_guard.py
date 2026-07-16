@@ -9,6 +9,12 @@
 - 权限提升 (sudo rm, su root)
 - 远程脚本执行 (curl | sh, wget | bash)
 - 注册表/系统配置 (reg delete, regsvr32 /s)
+- v2.2.1 F6 增强:
+    * PowerShell 危险 cmdlet (Remove-Item / Invoke-Expression / Start-Process ...)
+    * Base64 编码命令 (-EncodedCommand / base64 -d)
+    * 反向 shell (nc -e / mkfifo / /dev/tcp)
+    * 链式危险命令 (&& ||)
+    * dd 写入设备 (含 of = 带空格变体)
 """
 
 from __future__ import annotations
@@ -28,6 +34,8 @@ _DANGEROUS_PATTERNS: list[tuple[str, str]] = [
     (r"\brmdir\s+/s", "rmdir /s 递归删除目录"),
     (r"\bmkfs\.", "mkfs 格式化文件系统"),
     (r"\bdd\s+.*of=/dev/", "dd 写入设备文件"),
+    # v2.2.1 F6: dd of= 带空格变体 (of = /dev/...)
+    (r"\bdd\s+.*of\s*=\s*/dev/", "dd 写入设备文件 (of= 带空格变体)"),
     (r"\bshred\s+-", "shred 粉碎文件"),
     # 系统控制
     (r"\bshutdown\b", "shutdown 关机"),
@@ -54,6 +62,27 @@ _DANGEROUS_PATTERNS: list[tuple[str, str]] = [
     (r"\bcd\b.*;\s*rm\b", "cd 切换后删除 (可疑链式)"),
     # 叉炸弹
     (r":\(\)\s*\{\s*:\|:&\s*\}\s*;:", "fork bomb 叉炸弹"),
+    # ===== v2.2.1 F6 新增 =====
+    # PowerShell 危险 cmdlet
+    (r"\bRemove-Item\b", "PowerShell Remove-Item 删除项"),
+    (r"\bInvoke-Expression\b", "PowerShell Invoke-Expression 动态执行"),
+    (r"\bStop-Computer\b", "PowerShell Stop-Computer 关机"),
+    (r"\bStart-Process\b", "PowerShell Start-Process 启动进程"),
+    (r"\bSet-ExecutionPolicy\b", "PowerShell Set-ExecutionPolicy 修改执行策略"),
+    # Base64 编码命令 (常见攻击向量,绕过字符串匹配)
+    (r"-EncodedCommand\b", "PowerShell -EncodedCommand base64 编码命令"),
+    (r"\bbase64\s+(?:-d|--decode)\b", "base64 -d 解码命令 (可疑)"),
+    # 反向 shell
+    (r"\bnc\s+-e\b", "nc -e 反向 shell"),
+    (r"\bncat\s+-e\b", "ncat -e 反向 shell"),
+    (r"\bmkfifo\b", "mkfifo 命名管道 (反向 shell 常用)"),
+    (r"/dev/tcp/", "/dev/tcp 反向 shell 通道"),
+    # 链式危险命令 — 检测 rm/format/shutdown 与 && 或 || 组合
+    (r"\brm\s+(?:-\w*\s+)*-?rf?\b.*&&", "rm -rf && 链式危险命令"),
+    (r"\brm\s+(?:-\w*\s+)*-?rf?\b.*\|\|", "rm -rf || 链式危险命令"),
+    (r"\bformat\s+[a-z]:.*&&", "format && 链式危险命令"),
+    (r"\bshutdown\b.*&&", "shutdown && 链式危险命令"),
+    (r"\bshutdown\b.*\|\|", "shutdown || 链式危险命令"),
 ]
 
 _compiled_patterns = [

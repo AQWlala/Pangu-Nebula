@@ -44,8 +44,22 @@ class BrowserNavigateTool(BaseTool):
         },
         "required": ["url"],
     }
+    # v2.2.1 F5
+    allowed_kwargs: set[str] = {"url"}
 
     async def execute(self, url: str, **kwargs) -> ToolResult:
+        # F8 安全修复: 在调用 browser_service.navigate 之前,
+        # 用 ssrf_guard.validate_url_safe 校验 URL,防止 LLM 访问
+        # 内网(192.168.x / 10.x / 127.x)或云元数据(169.254.169.254)。
+        from ..services.ssrf_guard import ssrf_guard
+
+        is_safe, reason = ssrf_guard.validate_url_safe(url)
+        if not is_safe:
+            return ToolResult(
+                success=False,
+                output="",
+                error=f"URL 被 SSRF 防护拒绝: {reason}",
+            )
         svc, err = await _ensure_session()
         if svc is None:
             return ToolResult(success=False, output="", error=err)
@@ -70,6 +84,8 @@ class BrowserScreenshotTool(BaseTool):
         "type": "object",
         "properties": {},
     }
+    # v2.2.1 F5
+    allowed_kwargs: set[str] = set()
 
     async def execute(self, **kwargs) -> ToolResult:
         svc, err = await _ensure_session()
@@ -103,6 +119,8 @@ class BrowserClickTool(BaseTool):
         },
         "required": ["selector"],
     }
+    # v2.2.1 F5
+    allowed_kwargs: set[str] = {"selector"}
 
     async def execute(self, selector: str, **kwargs) -> ToolResult:
         svc, err = await _ensure_session()
@@ -135,6 +153,8 @@ class BrowserTypeTool(BaseTool):
         },
         "required": ["selector", "text"],
     }
+    # v2.2.1 F5
+    allowed_kwargs: set[str] = {"selector", "text"}
 
     async def execute(self, selector: str, text: str, **kwargs) -> ToolResult:
         svc, err = await _ensure_session()

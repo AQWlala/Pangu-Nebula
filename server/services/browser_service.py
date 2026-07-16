@@ -140,28 +140,34 @@ class BrowserService:
         """导航到指定 URL
 
         使用 page.goto 进行页面跳转,返回页面信息。
+
+        v2.2.1 S3: 锁仅保护读取 page 引用,Playwright 操作(page.goto/title)不持锁,
+        避免 30s 导航超时期间长期持锁阻塞其他状态读取。
         """
         if not _HAS_PLAYWRIGHT:
             return self._not_installed_error()
 
+        # 仅锁保护读取 page 引用
         async with self._lock:
-            if self.page is None:
-                return {"ok": False, "data": None, "error": "浏览器会话未启动,请先调用 /browser/session"}
-            try:
-                response = await self.page.goto(url, wait_until=wait_until)
-                status = response.status if response is not None else None
-                title = await self.page.title()
-                return {
-                    "ok": True,
-                    "data": {
-                        "url": self.page.url,
-                        "title": title,
-                        "status": status,
-                    },
-                    "error": None,
-                }
-            except Exception as e:
-                return {"ok": False, "data": None, "error": f"导航失败: {e}"}
+            page = self.page
+        if page is None:
+            return {"ok": False, "data": None, "error": "浏览器会话未启动,请先调用 /browser/session"}
+        # 操作不持锁
+        try:
+            response = await page.goto(url, wait_until=wait_until)
+            status = response.status if response is not None else None
+            title = await page.title()
+            return {
+                "ok": True,
+                "data": {
+                    "url": page.url,
+                    "title": title,
+                    "status": status,
+                },
+                "error": None,
+            }
+        except Exception as e:
+            return {"ok": False, "data": None, "error": f"导航失败: {e}"}
 
     async def execute_action(
         self,
@@ -184,99 +190,105 @@ class BrowserService:
         if not _HAS_PLAYWRIGHT:
             return self._not_installed_error()
 
+        # v2.2.1 S3: 锁仅保护读取 page 引用,Playwright 操作不持锁
         async with self._lock:
-            if self.page is None:
-                return {"ok": False, "data": None, "error": "浏览器会话未启动,请先调用 /browser/session"}
+            page = self.page
+        if page is None:
+            return {"ok": False, "data": None, "error": "浏览器会话未启动,请先调用 /browser/session"}
 
-            try:
-                if action == "click":
-                    if not selector:
-                        return {"ok": False, "data": None, "error": "click 操作需要 selector 参数"}
-                    await self.page.click(selector, timeout=timeout)
-                    return {"ok": True, "data": {"action": "click", "selector": selector}, "error": None}
+        try:
+            if action == "click":
+                if not selector:
+                    return {"ok": False, "data": None, "error": "click 操作需要 selector 参数"}
+                await page.click(selector, timeout=timeout)
+                return {"ok": True, "data": {"action": "click", "selector": selector}, "error": None}
 
-                elif action == "type":
-                    if not selector:
-                        return {"ok": False, "data": None, "error": "type 操作需要 selector 参数"}
-                    if text is None:
-                        return {"ok": False, "data": None, "error": "type 操作需要 text 参数"}
-                    await self.page.fill(selector, text, timeout=timeout)
+            elif action == "type":
+                if not selector:
+                    return {"ok": False, "data": None, "error": "type 操作需要 selector 参数"}
+                if text is None:
+                    return {"ok": False, "data": None, "error": "type 操作需要 text 参数"}
+                await page.fill(selector, text, timeout=timeout)
+                return {
+                    "ok": True,
+                    "data": {"action": "type", "selector": selector, "text": text},
+                    "error": None,
+                }
+
+            elif action == "screenshot":
+                screenshot_bytes = await page.screenshot()
+                screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+                return {
+                    "ok": True,
+                    "data": {"action": "screenshot", "image_base64": screenshot_b64},
+                    "error": None,
+                }
+
+            elif action == "scroll":
+                await page.evaluate("window.scrollBy(0, 500)")
+                return {"ok": True, "data": {"action": "scroll", "delta_y": 500}, "error": None}
+
+            elif action == "evaluate":
+                if not script:
+                    return {"ok": False, "data": None, "error": "evaluate 操作需要 script 参数"}
+                result = await page.evaluate(script)
+                return {
+                    "ok": True,
+                    "data": {"action": "evaluate", "result": result},
+                    "error": None,
+                }
+
+            elif action == "wait_for_selector":
+                if not selector:
                     return {
-                        "ok": True,
-                        "data": {"action": "type", "selector": selector, "text": text},
-                        "error": None,
+                        "ok": False,
+                        "data": None,
+                        "error": "wait_for_selector 操作需要 selector 参数",
                     }
+                await page.wait_for_selector(selector, timeout=timeout)
+                return {
+                    "ok": True,
+                    "data": {"action": "wait_for_selector", "selector": selector},
+                    "error": None,
+                }
 
-                elif action == "screenshot":
-                    screenshot_bytes = await self.page.screenshot()
-                    screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
-                    return {
-                        "ok": True,
-                        "data": {"action": "screenshot", "image_base64": screenshot_b64},
-                        "error": None,
-                    }
-
-                elif action == "scroll":
-                    await self.page.evaluate("window.scrollBy(0, 500)")
-                    return {"ok": True, "data": {"action": "scroll", "delta_y": 500}, "error": None}
-
-                elif action == "evaluate":
-                    if not script:
-                        return {"ok": False, "data": None, "error": "evaluate 操作需要 script 参数"}
-                    result = await self.page.evaluate(script)
-                    return {
-                        "ok": True,
-                        "data": {"action": "evaluate", "result": result},
-                        "error": None,
-                    }
-
-                elif action == "wait_for_selector":
-                    if not selector:
-                        return {
-                            "ok": False,
-                            "data": None,
-                            "error": "wait_for_selector 操作需要 selector 参数",
-                        }
-                    await self.page.wait_for_selector(selector, timeout=timeout)
-                    return {
-                        "ok": True,
-                        "data": {"action": "wait_for_selector", "selector": selector},
-                        "error": None,
-                    }
-
-                else:
-                    return {"ok": False, "data": None, "error": f"不支持的操作: {action}"}
-            except Exception as e:
-                return {"ok": False, "data": None, "error": f"执行操作 {action} 失败: {e}"}
+            else:
+                return {"ok": False, "data": None, "error": f"不支持的操作: {action}"}
+        except Exception as e:
+            return {"ok": False, "data": None, "error": f"执行操作 {action} 失败: {e}"}
 
     async def get_page_info(self) -> dict:
         """获取当前页面信息
 
         返回当前页面的 URL、标题和视口大小。
+
+        v2.2.1 S3: 锁仅保护读取 page 引用,Playwright 操作不持锁。
         """
         if not _HAS_PLAYWRIGHT:
             return self._not_installed_error()
 
+        # 仅锁保护读取 page 引用
         async with self._lock:
-            if self.page is None:
-                return {"ok": False, "data": None, "error": "浏览器会话未启动,请先调用 /browser/session"}
-            try:
-                title = await self.page.title()
-                viewport = self.page.viewport_size or {}
-                return {
-                    "ok": True,
-                    "data": {
-                        "url": self.page.url,
-                        "title": title,
-                        "viewport": {
-                            "width": viewport.get("width"),
-                            "height": viewport.get("height"),
-                        },
+            page = self.page
+        if page is None:
+            return {"ok": False, "data": None, "error": "浏览器会话未启动,请先调用 /browser/session"}
+        try:
+            title = await page.title()
+            viewport = page.viewport_size or {}
+            return {
+                "ok": True,
+                "data": {
+                    "url": page.url,
+                    "title": title,
+                    "viewport": {
+                        "width": viewport.get("width"),
+                        "height": viewport.get("height"),
                     },
-                    "error": None,
-                }
-            except Exception as e:
-                return {"ok": False, "data": None, "error": f"获取页面信息失败: {e}"}
+                },
+                "error": None,
+            }
+        except Exception as e:
+            return {"ok": False, "data": None, "error": f"获取页面信息失败: {e}"}
 
     async def get_status(self) -> dict:
         """获取浏览器状态
@@ -312,32 +324,37 @@ class BrowserService:
         """列出所有标签页
 
         返回当前浏览器上下文中所有标签页的信息。
+
+        v2.2.1 S3: 锁仅保护读取 context/page 引用,Playwright 操作(遍历 pages + title)不持锁。
         """
         if not _HAS_PLAYWRIGHT:
             return self._not_installed_error()
 
+        # 仅锁保护读取 context 与 page 引用
         async with self._lock:
-            if self.context is None:
-                return {"ok": False, "data": None, "error": "浏览器会话未启动,请先调用 /browser/session"}
-            try:
-                pages = self.context.pages
-                tabs = []
-                for idx, p in enumerate(pages):
-                    try:
-                        title = await p.title()
-                    except Exception:
-                        title = None
-                    tabs.append(
-                        {
-                            "index": idx,
-                            "url": p.url,
-                            "title": title,
-                            "is_current": p == self.page,
-                        }
-                    )
-                return {"ok": True, "data": {"tabs": tabs, "count": len(tabs)}, "error": None}
-            except Exception as e:
-                return {"ok": False, "data": None, "error": f"列出标签页失败: {e}"}
+            context = self.context
+            current_page = self.page
+        if context is None:
+            return {"ok": False, "data": None, "error": "浏览器会话未启动,请先调用 /browser/session"}
+        try:
+            pages = context.pages
+            tabs = []
+            for idx, p in enumerate(pages):
+                try:
+                    title = await p.title()
+                except Exception:
+                    title = None
+                tabs.append(
+                    {
+                        "index": idx,
+                        "url": p.url,
+                        "title": title,
+                        "is_current": p == current_page,
+                    }
+                )
+            return {"ok": True, "data": {"tabs": tabs, "count": len(tabs)}, "error": None}
+        except Exception as e:
+            return {"ok": False, "data": None, "error": f"列出标签页失败: {e}"}
 
 
 # 模块级单例

@@ -82,9 +82,10 @@ class TestExecuteCommandTool:
         assert "execute_command" in names
 
     async def test_safe_command_executes(self):
-        """安全命令 (echo) 正常执行"""
+        """安全命令 (echo) 正常执行 — shell 模式 (echo 是 shell builtin)"""
         tool = get_tool("execute_command")
-        result = await tool.execute(command="echo hello_world")
+        # v2.2.1 F6: echo 是 shell builtin,需 allow_pipeline=True 走 shell 模式
+        result = await tool.execute(command="echo hello_world", allow_pipeline=True)
         assert result.success is True
         assert "hello_world" in result.output
 
@@ -108,9 +109,10 @@ class TestExecuteCommandTool:
         assert "超时" in result.error
 
     async def test_command_returns_stdout(self):
-        """命令输出包含 stdout"""
+        """命令输出包含 stdout — shell 模式 (echo 是 shell builtin)"""
         tool = get_tool("execute_command")
-        result = await tool.execute(command="echo test_output_123")
+        # v2.2.1 F6: echo 是 shell builtin,需 allow_pipeline=True 走 shell 模式
+        result = await tool.execute(command="echo test_output_123", allow_pipeline=True)
         assert result.success is True
         assert "test_output_123" in result.output
 
@@ -235,8 +237,9 @@ async def test_tool_executor_allows_command_with_terminal_allowed():
     )
     executor = ToolExecutor()
     with patch("server.services.tool_executor.async_session", Session):
+        # v2.2.1 F6: echo 是 shell builtin,需 allow_pipeline=True 走 shell 模式
         result = await executor.execute(
-            "execute_command", {"command": "echo hi"}, persona
+            "execute_command", {"command": "echo hi", "allow_pipeline": True}, persona
         )
     assert result["success"] is True
     assert "hi" in result["output"]

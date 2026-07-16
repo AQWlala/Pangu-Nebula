@@ -24,6 +24,61 @@ import numpy as np
 from .vectorstore import _LocalHashEmbedding
 
 
+# ---- F4 安全修复: LanceDB SQL 注入防护辅助函数 ----
+# LanceDB 的 where 子句不接受参数化查询,只能拼接字符串。
+# 采用「输入校验 + SQL 字面量转义」双层防御。
+
+# doc_id 只允许字母、数字、下划线、连字符
+_DOC_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_\-]+$")
+
+# scope 枚举白名单
+_ALLOWED_SCOPES = {"private", "shared", "public"}
+
+
+def _escape_sql_literal(value: str) -> str:
+    """转义 SQL 字面量,防止注入
+
+    LanceDB where 子句不支持参数化查询,用转义 + 输入校验双层防御。
+    将单引号替换为两个单引号(SQL 标准转义方式)。
+    """
+    if not isinstance(value, str):
+        raise TypeError(f"expected str, got {type(value).__name__}")
+    # 转义单引号 (SQL 标准)
+    return value.replace("'", "''")
+
+
+def _validate_doc_id(doc_id: str) -> str:
+    """校验 doc_id 只含安全字符 (字母/数字/下划线/连字符)"""
+    if not isinstance(doc_id, str):
+        raise TypeError(f"doc_id must be str, got {type(doc_id).__name__}")
+    if not doc_id:
+        raise ValueError("doc_id must not be empty")
+    if not _DOC_ID_PATTERN.match(doc_id):
+        raise ValueError(f"invalid doc_id: {doc_id!r}")
+    return doc_id
+
+
+def _validate_scope(scope: str) -> str:
+    """校验 scope 在允许枚举内"""
+    if not isinstance(scope, str):
+        raise TypeError(f"scope must be str, got {type(scope).__name__}")
+    if scope not in _ALLOWED_SCOPES:
+        raise ValueError(f"invalid scope: {scope!r}, allowed: {sorted(_ALLOWED_SCOPES)}")
+    return scope
+
+
+def _build_doc_id_filter(doc_id: str) -> str:
+    """构造 doc_id = '...' 安全过滤条件"""
+    _validate_doc_id(doc_id)
+    return f"doc_id = '{_escape_sql_literal(doc_id)}'"
+
+
+def _build_scope_filter(scope: str) -> str:
+    """构造 scope = '...' 安全过滤条件"""
+    _validate_scope(scope)
+    return f"scope = '{_escape_sql_literal(scope)}'"
+
+
 class LanceVectorStore:
     """LanceDB 向量存储封装 — 接口与 ChromaVectorStore 一致"""
 
@@ -109,8 +164,11 @@ class LanceVectorStore:
         doc_ids = list({c["doc_id"] for c in chunks})
         for doc_id in doc_ids:
             try:
-                # LanceDB delete 接受 SQL 过滤字符串
-                self._table.delete(f'doc_id = \'{doc_id}\'')
+                # F4 安全修复: 用 _build_doc_id_filter 做输入校验+转义,防止 SQL 注入
+                self._table.delete(_build_doc_id_filter(doc_id))
+            except (ValueError, TypeError):
+                # 非法 doc_id 直接跳过(不写入也不删除),避免触发恶意 SQL
+                continue
             except Exception:
                 pass
 
@@ -141,11 +199,17 @@ class LanceVectorStore:
             return []
 
         query_vec = self._embedding_function([query_text])[0]
+        # F4 安全修复: 用 _build_scope_filter 做枚举校验+转义,防止 SQL 注入
+        try:
+            scope_filter = _build_scope_filter(scope)
+        except (ValueError, TypeError):
+            # 非法 scope 直接返回空结果,避免触发恶意 SQL
+            return []
         # LanceDB search 链式调用: vector → filter → limit → to_list
         try:
             results = (
                 self._table.search(query_vec.tolist())
-                .where(f"scope = '{scope}'")
+                .where(scope_filter)
                 .limit(top_k)
                 .to_list()
             )
@@ -166,8 +230,14 @@ class LanceVectorStore:
         self._ensure_db()
         if self._table is None:
             return
+        # F4 安全修复: 用 _build_doc_id_filter 做输入校验+转义,防止 SQL 注入
         try:
-            self._table.delete(f"doc_id = '{doc_id}'")
+            doc_id_filter = _build_doc_id_filter(doc_id)
+        except (ValueError, TypeError):
+            # 非法 doc_id 直接拒绝,不执行删除
+            return
+        try:
+            self._table.delete(doc_id_filter)
         except Exception:
             pass
 

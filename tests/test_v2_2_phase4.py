@@ -415,8 +415,12 @@ class TestStreamReplyRAG:
 
                     # 不应崩溃,应有 error 事件(No provider)
                     assert any(c.get("type") == "error" for c in chunks)
-                    # 不应有 rag_context 事件
-                    assert not any(c.get("type") == "rag_context" for c in chunks)
+                    # v2.2.1 S9: RAG 失败现在 yield rag_context 事件带 error 字段 (不再静默)
+                    rag_events = [c for c in chunks if c.get("type") == "rag_context"]
+                    assert len(rag_events) == 1
+                    assert rag_events[0]["sources"] == []
+                    assert "error" in rag_events[0]
+                    assert "DB error" in rag_events[0]["error"]
 
 
 # ============================================================

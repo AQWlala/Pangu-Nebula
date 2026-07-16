@@ -13,6 +13,9 @@ class BaseTool(ABC):
     name: str
     description: str
     parameters: dict
+    # v2.2.1 F5: 工具参数白名单 — 仅这些 kwargs 会从 arguments 传入 execute()
+    # 子类必须显式声明,未声明的工具仍按原行为透传 (向后兼容)
+    allowed_kwargs: set[str] = set()
 
     @abstractmethod
     async def execute(self, **kwargs) -> ToolResult: ...

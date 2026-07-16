@@ -258,9 +258,12 @@ class TestComputerToolsDependencyCheck:
 
         tool = ComputerScreenshotTool()
         with patch("server.tools.computer_tools._check_dependencies", return_value=(True, "")):
-            # mock pyautogui
+            # mock pyautogui — 必须提供 .size (tuple) / .mode (str) / .save (支持 kwargs)
+            # 因为 v2.2.1 F7 截图压缩代码会访问 img.size 和 img.mode
             mock_img = MagicMock()
-            mock_img.save = MagicMock(side_effect=lambda buf, format: buf.write(b"fake_png_data"))
+            mock_img.size = (800, 600)  # 小于 1024x768,不触发 thumbnail 缩放
+            mock_img.mode = "RGB"
+            mock_img.save = MagicMock(side_effect=lambda buf, **kwargs: buf.write(b"fake_jpeg_data"))
             with patch.dict("sys.modules", {"pyautogui": MagicMock(screenshot=MagicMock(return_value=mock_img))}):
                 result = await tool.execute()
                 assert result.success is True

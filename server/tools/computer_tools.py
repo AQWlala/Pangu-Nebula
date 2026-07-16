@@ -12,8 +12,14 @@
 - pyautogui: 鼠标/键盘控制 (跨平台)
 - uiautomation: 无障碍树 (Windows 专用)
 
-所有工具需 persona.browser_use_enabled=True (由 ToolExecutor 权限矩阵拦截,
-复用 browser_use_enabled 作为 "GUI 操作权限" 开关,避免新增 persona 字段)。
+v2.2.1 F7: 权限模型更新
+    所有工具需 persona.computer_use_enabled=True (由 ToolExecutor 权限矩阵拦截)。
+    此字段与 browser_use_enabled 解耦,默认关闭 (安全优先)。
+
+v2.2.1 F7: 安全加固
+    - computer_type_text 新增危险文本黑名单 (format / del /f / rm -rf / shutdown / taskkill)
+    - 检测危险组合键 (win+r / ctrl+alt+del / alt+f4)
+    - computer_screenshot 截图后压缩到 1024x768 + JPEG quality=85 (修复 S8)
 
 注意: 这些是 Rust computer_use 模块的 Python 兜底实现。
 当 Rust 模块编译完成 (HAS_RUST=True) 时,应优先调用 Rust 实现。
@@ -22,8 +28,43 @@ from __future__ import annotations
 
 import base64
 import io
+import re
 
 from .registry import BaseTool, ToolResult, register_tool
+
+
+# v2.2.1 F7: computer_type_text 危险文本黑名单
+# 检测 LLM 试图通过 type_text 执行破坏性命令
+_DANGEROUS_TEXT_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\bformat\s+[a-z]:", re.IGNORECASE), "format 格式化磁盘"),
+    (re.compile(r"\bdel\s+/[sf]", re.IGNORECASE), "del /s /f 强制删除"),
+    (re.compile(r"\brm\s+-rf\b", re.IGNORECASE), "rm -rf 递归删除"),
+    (re.compile(r"\bshutdown\b", re.IGNORECASE), "shutdown 关机"),
+    (re.compile(r"\btaskkill\s+/f", re.IGNORECASE), "taskkill /f 强制结束进程"),
+    # 危险组合键
+    (re.compile(r"\bwin\s*\+\s*r\b", re.IGNORECASE), "win+r 运行对话框 (可疑)"),
+    (re.compile(r"\bctrl\s*\+\s*alt\s*\+\s*del\b", re.IGNORECASE), "ctrl+alt+del 系统快捷键"),
+    (re.compile(r"\balt\s*\+\s*f4\b", re.IGNORECASE), "alt+f4 关闭窗口/关机"),
+]
+
+# v2.2.1 F7: 截图压缩参数 (修复 S8 内存爆炸)
+_SCREENSHOT_MAX_WIDTH = 1024
+_SCREENSHOT_MAX_HEIGHT = 768
+_SCREENSHOT_JPEG_QUALITY = 85
+
+
+def _check_text_safety(text: str) -> tuple[bool, str]:
+    """检查 type_text 的文本是否安全
+
+    Returns:
+        (safe, reason): safe=True 时 reason 为空
+    """
+    if not text:
+        return True, ""
+    for pattern, desc in _DANGEROUS_TEXT_PATTERNS:
+        if pattern.search(text):
+            return False, f"危险输入被拦截: {desc}"
+    return True, ""
 
 
 def _check_dependencies() -> tuple[bool, str]:
@@ -40,13 +81,15 @@ def _check_dependencies() -> tuple[bool, str]:
 class ComputerScreenshotTool(BaseTool):
     name = "computer_screenshot"
     description = (
-        "Take a full-screen screenshot of the desktop. Returns base64-encoded PNG. "
+        "Take a full-screen screenshot of the desktop. Returns base64-encoded JPEG. "
         "Use to see the current screen state before clicking or typing."
     )
     parameters = {
         "type": "object",
         "properties": {},
     }
+    # v2.2.1 F5
+    allowed_kwargs: set[str] = set()
 
     async def execute(self, **kwargs) -> ToolResult:
         ok, err = _check_dependencies()
@@ -57,12 +100,23 @@ class ComputerScreenshotTool(BaseTool):
 
             # pyautogui.screenshot() 返回 PIL.Image
             img = pyautogui.screenshot()
+
+            # v2.2.1 F7: 截图压缩 (修复 S8) — 缩放到 1024x768 + JPEG quality=85
+            # 保持比例,仅当原图大于目标尺寸时缩放
+            # 使用 PIL 默认的 BICUBIC 重采样 (无需显式 import PIL.Image)
+            orig_w, orig_h = img.size
+            if orig_w > _SCREENSHOT_MAX_WIDTH or orig_h > _SCREENSHOT_MAX_HEIGHT:
+                img.thumbnail((_SCREENSHOT_MAX_WIDTH, _SCREENSHOT_MAX_HEIGHT))
+            # 转 RGB (JPEG 不支持 alpha 通道)
+            if img.mode in ("RGBA", "LA", "P"):
+                img = img.convert("RGB")
+
             buf = io.BytesIO()
-            img.save(buf, format="PNG")
+            img.save(buf, format="JPEG", quality=_SCREENSHOT_JPEG_QUALITY, optimize=True)
             img_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
             return ToolResult(
                 success=True,
-                output=f"截图成功 (base64 长度: {len(img_b64)})。前 200 字符: {img_b64[:200]}",
+                output=f"截图成功 (JPEG {img.size[0]}x{img.size[1]}, base64 长度: {len(img_b64)})。前 200 字符: {img_b64[:200]}",
             )
         except Exception as exc:
             return ToolResult(success=False, output="", error=f"截图失败: {exc}")
@@ -88,6 +142,8 @@ class ComputerClickTool(BaseTool):
         },
         "required": ["x", "y"],
     }
+    # v2.2.1 F5
+    allowed_kwargs: set[str] = {"x", "y", "button"}
 
     async def execute(self, x: int, y: int, button: str = "left", **kwargs) -> ToolResult:
         ok, err = _check_dependencies()
@@ -124,11 +180,19 @@ class ComputerTypeTextTool(BaseTool):
         },
         "required": ["text"],
     }
+    # v2.2.1 F5
+    allowed_kwargs: set[str] = {"text", "interval"}
 
     async def execute(self, text: str, interval: float = 0.0, **kwargs) -> ToolResult:
         ok, err = _check_dependencies()
         if not ok:
             return ToolResult(success=False, output="", error=err)
+
+        # v2.2.1 F7: 危险文本黑名单检测
+        safe, reason = _check_text_safety(text)
+        if not safe:
+            return ToolResult(success=False, output="", error=reason)
+
         try:
             import pyautogui  # type: ignore
 
@@ -159,6 +223,8 @@ class ComputerGetA11yTreeTool(BaseTool):
             },
         },
     }
+    # v2.2.1 F5
+    allowed_kwargs: set[str] = {"max_depth"}
 
     async def execute(self, max_depth: int = 5, **kwargs) -> ToolResult:
         try:

@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import AsyncIterator
 
 from sqlalchemy import select, delete
@@ -13,9 +14,31 @@ from .compact import CompactEngine
 from .knowledge_service import format_rag_context, knowledge_service
 from .tool_executor import tool_executor
 
+logger = logging.getLogger(__name__)
+
 
 # v2.2.0: 工具调用循环最大轮次,防止死循环
 MAX_TOOL_ROUNDS = 10
+
+# v2.2.1 S2: 工具结果截断 — 防止 token 爆炸
+# 业务专家反: 截断可能丢失关键工具输出 → 应对方案: 截断长度可配置,保留首尾各 1000 字符
+_MAX_TOOL_RESULT_CHARS = 2000  # 可配置: 工具结果回喂 LLM 的最大字符数
+
+
+def _truncate_tool_result(content, max_chars: int = _MAX_TOOL_RESULT_CHARS):
+    """截断工具结果,保留首尾各 max_chars//2 字符。
+
+    - None / 非字符串 / 短内容: 原样返回,不抛异常
+    - 长内容: 保留首尾,中间用 ``...[truncated N chars]...`` 标记
+    """
+    if not isinstance(content, str) or len(content) <= max_chars:
+        return content
+    keep = max_chars // 2
+    return (
+        f"{content[:keep]}"
+        f"\n...[truncated {len(content) - max_chars} chars]...\n"
+        f"{content[-keep:]}"
+    )
 
 
 # 系统默认 Persona (兜底用, 不入库)
@@ -131,6 +154,7 @@ class ChatService:
             # v2.2.0 Phase 4: RAG 检索 — 在构建 messages 前注入知识库上下文
             rag_context_text = ""
             rag_sources: list[dict] = []
+            rag_error: str = ""  # v2.2.1 S9: RAG 异常不再静默
             if bool(getattr(persona, "rag_enabled", False)):
                 try:
                     rag_results = await knowledge_service.search(
@@ -138,19 +162,24 @@ class ChatService:
                     )
                     if rag_results:
                         rag_context_text = format_rag_context(rag_results)
-                        rag_sources = [
-                            {
+                        # v2.2.1 S9: preview None 安全 (修复 text=None 时 TypeError)
+                        rag_sources = []
+                        for r in rag_results:
+                            preview_text = r.get("text", "") or ""
+                            preview = (
+                                preview_text[:200] + "..."
+                                if len(preview_text) > 200
+                                else preview_text
+                            )
+                            rag_sources.append({
                                 "doc_id": r.get("doc_id", ""),
                                 "score": r.get("score", 0.0),
-                                "preview": (r.get("text", "")[:200] + "...")
-                                if len(r.get("text", "")) > 200
-                                else r.get("text", ""),
-                            }
-                            for r in rag_results
-                        ]
-                except Exception:
-                    # RAG 检索失败不阻断对话
-                    pass
+                                "preview": preview,
+                            })
+                except Exception as rag_exc:
+                    # v2.2.1 S9: RAG 异常不再静默 — 通知用户 RAG 不可用
+                    logger.warning(f"RAG retrieval failed: {rag_exc}")
+                    rag_error = f"知识库检索暂不可用: {rag_exc}"
 
             result = await session.execute(
                 select(Message)
@@ -170,11 +199,19 @@ class ChatService:
         ]
 
         # v2.2.0 Phase 4: 注入 RAG 上下文到 system prompt
-        if rag_context_text:
+        # v2.2.1 S9: RAG 异常不再静默 — 通知用户 RAG 不可用,并继续对话
+        if rag_error:
+            yield {"type": "rag_context", "sources": [], "error": rag_error}
+        elif rag_context_text:
             # 在 system message 后插入独立的 RAG 上下文 message,避免污染原 system prompt
             rag_msg = ProviderMessage(role="system", content=rag_context_text)
-            # 插入到 system 之后、user/assistant 消息之前
-            provider_messages.insert(1, rag_msg)
+            # v2.2.1 S9: RAG 上下文插入到最后一个 system 消息之后,而非固定位置 1
+            # (compact 可能产生多个 system 消息,固定 insert(1, ...) 会插错位置)
+            insert_idx = 0
+            for i, msg in enumerate(provider_messages):
+                if msg.role == "system":
+                    insert_idx = i + 1
+            provider_messages.insert(insert_idx, rag_msg)
             # 通知前端展示了哪些 RAG 来源
             yield {"type": "rag_context", "sources": rag_sources}
 
@@ -258,9 +295,15 @@ class ChatService:
                     if acc_tool_calls[i]["name"]
                 ]
 
-                # 无工具调用 → 文本完成,结束循环
-                if not tool_calls_list or finish_reason != "tool_calls":
+                # v2.2.1 S4: finish_reason 兼容判断
+                # 部分 provider 返回 tool_calls 时 finish_reason 可能为 None,
+                # 仅在 tool_calls 为空或 finish_reason 明确不是 "tool_calls" 时才 break。
+                if not tool_calls_list:
                     break
+                if finish_reason is not None and finish_reason != "tool_calls":
+                    # 明确不是 tool_calls 时才 break
+                    break
+                # tool_calls_list 非空且 (finish_reason is None 或 finish_reason == "tool_calls") 时继续执行工具
 
                 # 有工具调用 → 执行并回喂
                 last_tool_calls_json = json.dumps(tool_calls_list, ensure_ascii=False)
@@ -305,10 +348,13 @@ class ChatService:
                         "success": success,
                     }
 
+                    # v2.2.1 S2: 回喂 LLM 前截断工具结果,防止 provider_messages 累积导致 token 爆炸
+                    # 注意: 仅截断回喂 LLM 的 content,前端 yield 仍用原始 result_text
+                    truncated_result = _truncate_tool_result(result_text)
                     provider_messages.append(
                         ProviderMessage(
                             role="tool",
-                            content=result_text,
+                            content=truncated_result,
                             tool_call_id=tc["id"],
                         )
                     )

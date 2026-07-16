@@ -24,6 +24,9 @@ class Persona(Base):
     sandbox_allow_network: Mapped[bool] = mapped_column(Boolean, default=False)
     terminal_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
     browser_use_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # v2.2.1 F7: computer_* 工具独立权限字段 (与 browser_* 解耦,默认关闭,安全优先)
+    # 架构师 + 业务专家双票通过新增字段
+    computer_use_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now(), onupdate=datetime.utcnow)
 

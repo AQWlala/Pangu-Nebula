@@ -519,7 +519,11 @@ class TestPerformanceVerification:
                         async for chunk in svc.stream_reply(1, "问题"):
                             chunks.append(chunk)
 
-                        # 不应有 rag_context (检索失败)
-                        assert not any(c["type"] == "rag_context" for c in chunks)
-                        # 应有 done (对话继续)
+                        # v2.2.1 S9: RAG 检索失败时现在会 yield rag_context error 事件通知用户
+                        rag_ctx_chunks = [c for c in chunks if c["type"] == "rag_context"]
+                        assert len(rag_ctx_chunks) <= 1  # 最多一个 rag_context 事件
+                        if rag_ctx_chunks:
+                            # 若有 rag_context 事件,必须带 error 字段(通知用户 RAG 不可用)
+                            assert "error" in rag_ctx_chunks[0]
+                        # 应有 done (对话继续,不被 RAG 失败阻断)
                         assert any(c["type"] == "done" for c in chunks)

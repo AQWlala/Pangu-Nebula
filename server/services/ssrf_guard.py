@@ -239,6 +239,35 @@ class SSRFGuard:
             "all_ips": ips,
         }
 
+    def validate_url_safe(
+        self, url: str, allow_internal: bool = False
+    ) -> tuple[bool, str]:
+        """F8 安全修复: 校验 URL 是否安全,返回 (is_safe, reason)
+
+        简化包装: 内部调用 ``check`` 后将结果转换为 (bool, str) 元组,
+        便于在 browser_navigate 等工具入口做守卫式校验。
+
+        参数:
+            url: 待校验的 URL
+            allow_internal: True 时允许访问内网(默认 False,严格模式)
+
+        返回:
+            (True, "ok")           — 安全,允许访问
+            (False, reason_str)    — 不安全,reason_str 描述威胁
+        """
+        result = self.check(url, allow_internal=allow_internal)
+        if result.get("safe"):
+            return True, "ok"
+        threats = result.get("threats") or []
+        if threats:
+            # 用 '; ' 拼接所有威胁 detail,便于排查
+            reason = "; ".join(
+                t.get("detail", "unknown threat") for t in threats
+            )
+        else:
+            reason = "url rejected"
+        return False, reason
+
 
 # 模块级单例
 ssrf_guard = SSRFGuard()

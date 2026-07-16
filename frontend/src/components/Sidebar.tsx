@@ -34,6 +34,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "skills", label: "技能市场", icon: "⚡" },
       { id: "wiki", label: "Wiki浏览", icon: "📖" },
       { id: "wiki-review", label: "审核收件箱", icon: "📥" },
+      { id: "wikigraph", label: "知识图谱", icon: "🕸️" },
     ],
   },
   {
@@ -48,6 +49,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "dashboard", label: "仪表盘", icon: "📊" },
       { id: "settings", label: "设置", icon: "⚙️" },
+      { id: "computer-use", label: "自动化", icon: "🤖" },
     ],
   },
   {

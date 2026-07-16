@@ -1,7 +1,9 @@
 # server/kb/retrieval/indexer.py
 """索引构建器"""
 from __future__ import annotations
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from server.kb.storage.repo import DocumentRepo
 from server.kb.retrieval.vectorstore import ChromaVectorStore
 
@@ -17,10 +19,37 @@ class IndexResult:
 class Indexer:
     """文档索引构建器（增量更新）"""
 
-    def __init__(self, repo: DocumentRepo, vector_store: ChromaVectorStore):
+    def __init__(
+        self,
+        repo: DocumentRepo,
+        vector_store: ChromaVectorStore,
+        indexes_dir: Path | None = None,
+    ):
         self.repo = repo
         self.vector_store = vector_store
-        self._indexed_checksums: set[str] = set()
+        self.indexes_dir = indexes_dir
+        self._checksums_file = indexes_dir / "checksums.json" if indexes_dir else None
+        self._indexed_checksums: dict[str, str] = self._load_checksums()
+
+    def _load_checksums(self) -> dict[str, str]:
+        """Load persisted checksums from disk."""
+        if self._checksums_file and self._checksums_file.exists():
+            try:
+                with open(self._checksums_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        return data
+            except (json.JSONDecodeError, IOError):
+                pass
+        return {}
+
+    def _save_checksums(self) -> None:
+        """Persist checksums to disk."""
+        if not self._checksums_file or not self.indexes_dir:
+            return
+        self.indexes_dir.mkdir(parents=True, exist_ok=True)
+        with open(self._checksums_file, "w", encoding="utf-8") as f:
+            json.dump(self._indexed_checksums, f, ensure_ascii=False)
 
     def build_index(self) -> IndexResult:
         doc_ids = self.repo.list_all()
@@ -29,14 +58,15 @@ class Indexer:
 
         for doc_id in doc_ids:
             fm, body = self.repo.read(doc_id)
-            if fm.checksum in self._indexed_checksums:
+            if self._indexed_checksums.get(doc_id) == fm.checksum:
                 skipped += 1
                 continue
             chunks = self._chunk_document(doc_id, fm, body)
             self.vector_store.upsert(chunks)
-            self._indexed_checksums.add(fm.checksum)
+            self._indexed_checksums[doc_id] = fm.checksum
             indexed += 1
 
+        self._save_checksums()
         return IndexResult(True, indexed, skipped)
 
     def _chunk_document(self, doc_id: str, fm, body: str) -> list[dict]:

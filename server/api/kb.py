@@ -121,6 +121,23 @@ async def approve_document(pending_id: str):
 
     repo.save(fm, pending["converted_md"])
     inbox.remove_pending(pending_id)
+
+    # After saving the document, trigger indexing so the document is searchable
+    try:
+        from server.kb.retrieval.indexer import Indexer
+
+        store = ChromaVectorStore(persist_dir=config.chroma_dir)
+        indexer = Indexer(
+            repo=repo, vector_store=store, indexes_dir=config.indexes_dir
+        )
+        indexer.build_index()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Indexing failed after approval: {e}"
+        )
+        # Don't fail the approval if indexing fails
+
     return {"success": True, "doc_id": fm.id, "message": "文档已审核通过并保存"}
 
 

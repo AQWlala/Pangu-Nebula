@@ -3,7 +3,8 @@
 from __future__ import annotations
 from pathlib import Path
 import hashlib
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from server.kb.storage.frontmatter import FrontMatter, parse_frontmatter, dump_frontmatter
 
 
@@ -15,16 +16,22 @@ class DocumentRepo:
         self.documents_dir.mkdir(parents=True, exist_ok=True)
 
     def _file_path(self, doc_id: str) -> Path:
-        safe_id = doc_id.replace("/", "_").replace("\\", "_")
+        # Strict sanitization: only allow alphanumeric, dots, hyphens, underscores.
+        # Reject null bytes and ``..`` segments to block path traversal.
+        if "\x00" in doc_id:
+            raise ValueError(f"Invalid doc_id contains null byte: {doc_id}")
+        safe_id = re.sub(r"[^A-Za-z0-9._-]", "_", doc_id)
+        if ".." in safe_id:
+            raise ValueError(f"Invalid doc_id contains '..': {doc_id}")
         return self.documents_dir / f"{safe_id}.md"
 
     def save(self, fm: FrontMatter, body: str) -> Path:
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(timezone.utc).isoformat() + "Z"
         if not fm.created_at:
             fm.created_at = now
         fm.updated_at = now
 
-        if not fm.checksum or fm.checksum.startswith("sha256:"):
+        if not fm.checksum or not fm.checksum.startswith("sha256:"):
             content_hash = hashlib.sha256(body.encode()).hexdigest()
             fm.checksum = f"sha256:{content_hash}"
 

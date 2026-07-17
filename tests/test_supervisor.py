@@ -19,6 +19,7 @@ pytest.importorskip("uvicorn")
 
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -315,6 +316,18 @@ def _start_sidecar(timeout: float = 15.0):
     return proc, port, token
 
 
+def _wait_for_port(port: int, timeout: float = 10.0) -> bool:
+    """轮询等待 uvicorn 端口就绪 (替代 time.sleep, 避免 CI flaky)"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            if s.connect_ex(("127.0.0.1", port)) == 0:
+                return True
+        time.sleep(0.2)
+    return False
+
+
 def _http_get(url: str, token: str = None, timeout: float = 5.0):
     """带 Bearer token 的 GET 请求"""
     req = urllib.request.Request(url)
@@ -339,17 +352,13 @@ def _http_post(url: str, token: str = None, timeout: float = 5.0):
         return e.code, e.read().decode("utf-8") if e.fp else ""
 
 
-@pytest.mark.skipif(
-    os.environ.get("CI") == "true",
-    reason="Sidecar integration test skipped in CI (requires Python launch.py)",
-)
 def test_25_sidecar_shutdown_endpoint():
     """sidecar /shutdown 端点可正常关闭 (优雅关闭验证)"""
     proc, port, token = _start_sidecar()
 
     try:
-        # 等待 sidecar 就绪
-        time.sleep(2)
+        # 等待 sidecar 就绪 (端口轮询, 避免 CI flaky)
+        assert _wait_for_port(port), f"Sidecar 未在 10s 内就绪 (port={port})"
 
         # 验证 /health/ready 返回 200
         status, _ = _http_get(f"http://127.0.0.1:{port}/health/ready", token=token)
@@ -379,7 +388,8 @@ def test_26_sidecar_shutdown_requires_auth():
     proc, port, token = _start_sidecar()
 
     try:
-        time.sleep(2)
+        # 等待 sidecar 就绪 (端口轮询, 避免 CI flaky)
+        assert _wait_for_port(port), f"Sidecar 未在 10s 内就绪 (port={port})"
 
         # /shutdown 不在白名单中,无 token 返回 401 (安全修复 S2)
         status, _ = _http_post(f"http://127.0.0.1:{port}/shutdown", token=None)

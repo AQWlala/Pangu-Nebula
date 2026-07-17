@@ -1,6 +1,6 @@
 [project]
 name = "pangu-nebula"
-version = "2.2.2"
+version = "2.3.1"
 description = "Pangu Nebula AI Agent Platform"
 authors = [{name = "Developer"}]
 requires-python = ">=3.11"

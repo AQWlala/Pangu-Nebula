@@ -24,7 +24,7 @@ import time
 
 import uvicorn
 
-VERSION = "2.2.2"
+VERSION = "2.3.1"
 
 
 

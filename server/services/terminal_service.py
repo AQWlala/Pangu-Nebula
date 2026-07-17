@@ -36,7 +36,8 @@ def _validate_shell(shell: str) -> tuple[bool, str]:
     resolved = shutil.which(shell)
     if resolved is None:
         return False, f"shell not found: {shell}"
-    basename = os.path.basename(resolved).lower()
+    # v2.2.2: 跨平台 basename 提取 — Linux 上 os.path.basename 不认 Windows \ 路径分隔符
+    basename = os.path.basename(resolved.replace("\\", "/")).lower()
     allowed = _ALLOWED_SHELLS.get(sys.platform, set())
     if basename not in allowed:
         return False, f"shell not allowed: {shell} (resolved: {resolved}). Allowed: {allowed}"

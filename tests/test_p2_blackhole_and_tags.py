@@ -403,11 +403,11 @@ class TestLanceStoreTagsIntegration:
             "tags": ["a,b", "c"],  # 含逗号的 tag
         }]
 
-        with patch("pyarrow.Table.from_pylist") as mock_from_pylist:
+        with patch("server.kb.retrieval.lance_store.pa") as mock_pa:
             store.upsert(chunks)
 
         # 验证传给 pa.Table.from_pylist 的 rows 中 tags 是 JSON 字符串
-        call_args = mock_from_pylist.call_args[0][0]
+        call_args = mock_pa.Table.from_pylist.call_args[0][0]
         row = call_args[0]
         assert row["tags"] == '["a,b", "c"]', (
             f"tags 应序列化为 JSON, 实际: {row['tags']!r}"

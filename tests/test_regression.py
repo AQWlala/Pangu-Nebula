@@ -452,11 +452,11 @@ class TestCICDCompliance:
     """CI/CD 验收关键项验证。"""
 
     def test_tauri_release_workflow_exists(self):
-        """C1: tauri-release.yml 存在且触发条件为 v2.1.* tag。"""
+        """C1: tauri-release.yml 存在且触发条件为 v2.* tag。"""
         workflow = PROJECT_ROOT / ".github" / "workflows" / "tauri-release.yml"
         assert workflow.exists()
         content = workflow.read_text(encoding="utf-8")
-        assert "v2.1.*" in content, "tauri-release.yml 未配置 v2.1.* tag 触发"
+        assert "v2.*" in content, "tauri-release.yml 未配置 v2.* tag 触发"
 
     def test_rust_cache_integrated(self):
         """C2: swatinem/rust-cache 已集成。"""

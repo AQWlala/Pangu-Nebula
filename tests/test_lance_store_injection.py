@@ -311,8 +311,8 @@ class TestUpsertInjection:
             "doc_id": "doc-001",
             "scope": "private",
         }]
-        # 需要 mock pyarrow.Table.from_pylist
-        with patch("pyarrow.Table.from_pylist"):
+        # mock pyarrow — v2.2.2: patch 模块级 pa 引用 (pyarrow.Table 是 immutable type, 不能 patch 属性)
+        with patch("server.kb.retrieval.lance_store.pa"):
             store.upsert(chunks)
         # 正常 doc_id 触发 delete
         assert mock_table.delete.call_count == 1
@@ -327,7 +327,7 @@ class TestUpsertInjection:
             "doc_id": "' OR 1=1 --",
             "scope": "private",
         }]
-        with patch("pyarrow.Table.from_pylist"):
+        with patch("server.kb.retrieval.lance_store.pa"):
             # 不应抛异常
             store.upsert(chunks)
         # 关键: 恶意 doc_id 不会触发 delete

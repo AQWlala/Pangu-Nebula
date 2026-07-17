@@ -38,7 +38,7 @@ API_AVG_THRESHOLD_MS = 100  # 平均 < 100ms
 STARTUP_THRESHOLD_S = 3.0   # 启动 < 3s
 
 # 内存阈值
-MEMORY_THRESHOLD_MB = 200   # 内存 < 200MB
+MEMORY_THRESHOLD_MB = 300   # 内存 < 300MB (v2.2.2: lancedb/chromadb 依赖导致基线上升)
 
 # 测试重复次数 (用于计算 p50/p99)
 WARMUP_REQUESTS = 5
@@ -206,8 +206,8 @@ class TestStartupTime:
 class TestMemoryUsage:
     """内存占用测试"""
 
-    def test_process_memory_under_200mb(self):
-        """当前进程内存占用 < 200MB"""
+    def test_process_memory_under_300mb(self):
+        """当前进程内存占用 < 300MB"""
         gc.collect()
         mem_mb = _get_process_memory_mb()
         if mem_mb == 0.0:
@@ -217,8 +217,8 @@ class TestMemoryUsage:
             f"内存占用 {mem_mb:.2f}MB 超过 {MEMORY_THRESHOLD_MB}MB 阈值"
         )
 
-    def test_app_import_memory_under_200mb(self):
-        """导入 server.main 后内存占用 < 200MB"""
+    def test_app_import_memory_under_300mb(self):
+        """导入 server.main 后内存占用 < 300MB"""
         gc.collect()
         before_mb = _get_process_memory_mb()
         # 重新导入 app (已经在 conftest 中导入过,这里仅测量内存差)

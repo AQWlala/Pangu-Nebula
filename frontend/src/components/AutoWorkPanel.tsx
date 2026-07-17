@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
-import { apiGet, apiPost } from '../lib/api'
+import { apiGet, apiPost, apiDelete } from '../lib/api'
 
 interface AutoWorkTask {
   id: number
@@ -11,6 +11,16 @@ interface AutoWorkTask {
   config: Record<string, any>
   result: string | null
   created_at: string | null
+}
+
+// v2.3.0 Phase 3-D: 定时任务 (scheduler) 类型
+interface SchedulerJobItem {
+  id: number
+  name: string
+  cron_expr: string
+  action: Record<string, any>
+  enabled: boolean
+  created_at?: string | null
 }
 
 interface KanbanData {
@@ -46,6 +56,11 @@ export default function AutoWorkPanel() {
   const [description, setDescription] = useState('')
   const [creating, setCreating] = useState(false)
 
+  // v2.3.0 Phase 3-D: 定时任务 (scheduler) 生命周期管理
+  const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJobItem[]>([])
+  const [schedulerLoading, setSchedulerLoading] = useState(false)
+  const [schedulerActingId, setSchedulerActingId] = useState<number | null>(null)
+
   const loadKanban = async () => {
     try {
       const data = await apiGet<KanbanData>('/autowork/kanban')
@@ -57,8 +72,43 @@ export default function AutoWorkPanel() {
     }
   }
 
+  // v2.3.0 Phase 3-D: 加载定时任务列表
+  const loadSchedulerJobs = async () => {
+    setSchedulerLoading(true)
+    try {
+      const data = await apiGet<SchedulerJobItem[]>('/scheduler/jobs')
+      setSchedulerJobs(Array.isArray(data) ? data : [])
+    } catch (e: any) {
+      // scheduler 为可选模块, 失败时静默
+      setSchedulerJobs([])
+    } finally {
+      setSchedulerLoading(false)
+    }
+  }
+
+  // v2.3.0 Phase 3-D: 定时任务生命周期操作
+  const handleSchedulerAction = async (
+    job: SchedulerJobItem,
+    action: 'cancel' | 'pause' | 'resume' | 'delete'
+  ) => {
+    setSchedulerActingId(job.id)
+    try {
+      if (action === 'delete') {
+        await apiDelete(`/scheduler/jobs/${job.id}`)
+      } else {
+        await apiPost(`/scheduler/jobs/${job.id}/${action}`)
+      }
+      await loadSchedulerJobs()
+    } catch (e: any) {
+      setError(e?.message || `任务${action}操作失败`)
+    } finally {
+      setSchedulerActingId(null)
+    }
+  }
+
   useEffect(() => {
     loadKanban()
+    loadSchedulerJobs()
   }, [])
 
   const handleCreate = async () => {
@@ -228,6 +278,104 @@ export default function AutoWorkPanel() {
             </div>
           )
         })}
+      </div>
+
+      {/* v2.3.0 Phase 3-D: 定时任务 (scheduler) 生命周期管理 */}
+      <div className="bg-white rounded-xl p-4 mt-6 shadow-sm border border-gray-200">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-base font-semibold text-gray-700">⏰ 定时任务管理</h3>
+            <p className="text-xs text-gray-500 mt-0.5">生命周期: 取消 / 删除 / 暂停 / 恢复</p>
+          </div>
+          <button
+            onClick={loadSchedulerJobs}
+            disabled={schedulerLoading}
+            className="px-3 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs hover:bg-gray-200 disabled:opacity-50 transition-colors"
+          >
+            {schedulerLoading ? '刷新中...' : '🔄 刷新'}
+          </button>
+        </div>
+
+        {schedulerLoading && schedulerJobs.length === 0 ? (
+          <p className="text-center text-gray-400 text-xs py-6">加载中...</p>
+        ) : schedulerJobs.length === 0 ? (
+          <p className="text-center text-gray-400 text-xs py-6">暂无定时任务</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {schedulerJobs.map((job) => {
+              const acting = schedulerActingId === job.id
+              return (
+                <div
+                  key={job.id}
+                  className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ background: job.enabled ? '#38a169' : '#d1d5db' }}
+                      />
+                      <span className="text-sm font-semibold text-gray-800 truncate">
+                        #{job.id} {job.name}
+                      </span>
+                      <span
+                        className="text-xs px-1.5 py-0.5 rounded-full"
+                        style={{
+                          background: job.enabled ? '#ebf8ff' : '#f7fafc',
+                          color: job.enabled ? '#3182ce' : '#718096',
+                        }}
+                      >
+                        {job.enabled ? '已启用' : '已暂停'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      ⏱ {job.cron_expr}
+                      {job.action?.type ? ` · ${job.action.type}` : ''}
+                    </div>
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0">
+                    {/* 启用时: 可暂停/取消/删除; 暂停时: 可恢复/删除 */}
+                    {job.enabled ? (
+                      <button
+                        onClick={() => handleSchedulerAction(job, 'pause')}
+                        disabled={acting}
+                        title="暂停"
+                        className="px-2 py-1 rounded text-xs bg-yellow-100 text-yellow-700 hover:bg-yellow-200 disabled:opacity-50 transition-colors"
+                      >
+                        暂停
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleSchedulerAction(job, 'resume')}
+                        disabled={acting}
+                        title="恢复"
+                        className="px-2 py-1 rounded text-xs bg-green-100 text-green-700 hover:bg-green-200 disabled:opacity-50 transition-colors"
+                      >
+                        恢复
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleSchedulerAction(job, 'cancel')}
+                      disabled={acting}
+                      title="取消运行中任务"
+                      className="px-2 py-1 rounded text-xs bg-orange-100 text-orange-700 hover:bg-orange-200 disabled:opacity-50 transition-colors"
+                    >
+                      停止
+                    </button>
+                    <button
+                      onClick={() => handleSchedulerAction(job, 'delete')}
+                      disabled={acting}
+                      title="删除任务"
+                      className="px-2 py-1 rounded text-xs bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50 transition-colors"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

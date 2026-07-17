@@ -1,7 +1,8 @@
 // 双栏设置面板 - macOS 风格, 左栏分类列表 + 右栏表单
 import { useState, useEffect } from "preact/hooks"
-import { apiGet, apiPost, apiPut, apiDelete } from "../lib/api"
-import type { ProviderInfo, Persona, Channel, SchedulerJob } from "../lib/types"
+import { apiGet, apiPost, apiDelete } from "../lib/api"
+import type { ProviderInfo, Persona, Channel } from "../lib/types"
+import { useAppVersion } from '../lib/store'
 import UpdateChecker from "./UpdateChecker"
 
 // 设置分类
@@ -10,14 +11,11 @@ const CATEGORIES = [
   { id: "provider", label: "Provider", icon: "🔌" },
   { id: "persona", label: "角色", icon: "🎭" },
   { id: "memory", label: "记忆", icon: "🧠" },
-  { id: "skills", label: "技能", icon: "⚡" },
   { id: "sync", label: "同步", icon: "🔄" },
   { id: "channel", label: "渠道", icon: "📡" },
   { id: "security", label: "安全", icon: "🔒" },
   { id: "multimodal", label: "多模态", icon: "🎬" },
   { id: "os", label: "OS感知", icon: "🖥️" },
-  { id: "scheduler", label: "调度", icon: "⏰" },
-  { id: "mcp", label: "MCP", icon: "🔧" },
   { id: "about", label: "关于", icon: "ℹ️" },
 ]
 
@@ -37,35 +35,15 @@ export default function Settings() {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [personas, setPersonas] = useState<Persona[]>([])
   const [channels, setChannels] = useState<Channel[]>([])
-  const [jobs, setJobs] = useState<SchedulerJob[]>([])
   const [syncDevices, setSyncDevices] = useState<any[]>([])
-  const [mcpServers, setMcpServers] = useState<any[]>([])
-  const [mcpTools, setMcpTools] = useState<any[]>([])
-  const [skills, setSkills] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
-  const [appVersion, setAppVersion] = useState<string>("")
-
-  // 获取版本号 (从后端 /update/status 动态获取,避免硬编码)
-  useEffect(() => {
-    apiGet<any>("/update/status").then((res) => {
-      if (res?.data?.current_version) {
-        setAppVersion(res.data.current_version)
-      }
-    }).catch(() => { /* ignore */ })
-  }, [])
+  // 版本号: 优先使用 store (Phase 0 统一状态层), 避免重复 fetch
+  const appVersion = useAppVersion()
 
   // 渠道添加表单
   const [showChannelForm, setShowChannelForm] = useState(false)
   const [channelForm, setChannelForm] = useState({ channel_type: 'discord', name: '', config_json: '{}' })
   const [savingChannel, setSavingChannel] = useState(false)
-  // 调度任务添加表单
-  const [showJobForm, setShowJobForm] = useState(false)
-  const [jobForm, setJobForm] = useState({ name: '', cron_expr: '0 * * * *', action_type: 'ping', action_params: '{}' })
-  const [savingJob, setSavingJob] = useState(false)
-  // MCP 服务器添加表单
-  const [showMcpServerForm, setShowMcpServerForm] = useState(false)
-  const [mcpServerForm, setMcpServerForm] = useState({ name: '', transport: 'stdio', command: '', args: '' })
-  const [savingMcpServer, setSavingMcpServer] = useState(false)
   // 同步设备配对表单
   const [showPairingForm, setShowPairingForm] = useState(false)
   const [pairingForm, setPairingForm] = useState({ device_name: '' })
@@ -131,18 +109,8 @@ export default function Settings() {
         case "channel":
           setChannels((await apiGet<Channel[]>("/channel/list")) ?? [])
           break
-        case "scheduler":
-          setJobs((await apiGet<SchedulerJob[]>("/scheduler/jobs")) ?? [])
-          break
         case "sync":
           setSyncDevices((await apiGet<any[]>("/sync/devices")) ?? [])
-          break
-        case "mcp":
-          setMcpServers((await apiGet<any[]>("/mcp/servers")) ?? [])
-          setMcpTools((await apiGet<any[]>("/mcp/tools")) ?? [])
-          break
-        case "skills":
-          setSkills((await apiGet<any[]>("/skills")) ?? [])
           break
       }
     } catch (e: any) {
@@ -196,30 +164,6 @@ export default function Settings() {
     } catch (e: any) { setError(e?.message || '添加渠道失败') }
     finally { setSavingChannel(false) }
   }
-  // 保存调度任务
-  const saveJob = async () => {
-    if (!jobForm.name.trim()) { setError('请输入任务名称'); return }
-    setSavingJob(true); setError('')
-    try {
-      let params = {}
-      try { params = JSON.parse(jobForm.action_params) } catch {}
-      await apiPost('/scheduler/jobs', { name: jobForm.name.trim(), cron_expr: jobForm.cron_expr, action: { type: jobForm.action_type, params }, enabled: true })
-      setShowJobForm(false); setJobForm({ name: '', cron_expr: '0 * * * *', action_type: 'ping', action_params: '{}' })
-      await loadData('scheduler')
-    } catch (e: any) { setError(e?.message || '添加任务失败') }
-    finally { setSavingJob(false) }
-  }
-  // 保存 MCP 服务器
-  const saveMcpServer = async () => {
-    if (!mcpServerForm.name.trim() || !mcpServerForm.command.trim()) { setError('请填写服务器名称和命令'); return }
-    setSavingMcpServer(true); setError('')
-    try {
-      await apiPost('/mcp/servers', { name: mcpServerForm.name.trim(), transport: mcpServerForm.transport, command: mcpServerForm.command.trim(), args: mcpServerForm.args ? mcpServerForm.args.split(',').map(s => s.trim()) : [] })
-      setShowMcpServerForm(false); setMcpServerForm({ name: '', transport: 'stdio', command: '', args: '' })
-      await loadData('mcp')
-    } catch (e: any) { setError(e?.message || '添加服务器失败') }
-    finally { setSavingMcpServer(false) }
-  }
   // 发起设备配对
   const startPairing = async () => {
     if (!pairingForm.device_name.trim()) { setError('请输入设备名称'); return }
@@ -243,37 +187,10 @@ export default function Settings() {
     }
   }
 
-  const deleteJob = async (id: number) => {
-    try {
-      await apiDelete(`/scheduler/jobs/${id}`)
-      setJobs(jobs.filter((j) => j.id !== id))
-    } catch (e: any) {
-      setError(e.message)
-    }
-  }
-
-  const toggleSkill = async (id: number, enabled: boolean) => {
-    try {
-      await apiPut(`/skills/${id}`, { enabled: !enabled })
-      setSkills(skills.map((s) => (s.id === id ? { ...s, enabled: !enabled } : s)))
-    } catch (e: any) {
-      setError(e.message)
-    }
-  }
-
   const deleteSyncDevice = async (deviceId: string) => {
     try {
       await apiDelete(`/sync/devices/${deviceId}`)
       setSyncDevices(syncDevices.filter((d) => d.device_id !== deviceId))
-    } catch (e: any) {
-      setError(e.message)
-    }
-  }
-
-  const deleteMcpServer = async (name: string) => {
-    try {
-      await apiDelete(`/mcp/servers/${name}`)
-      setMcpServers(mcpServers.filter((s) => s.name !== name))
     } catch (e: any) {
       setError(e.message)
     }
@@ -445,30 +362,6 @@ export default function Settings() {
                 <input type="checkbox" checked={blackholeMode} onChange={(e) => setBlackholeMode((e.target as HTMLInputElement).checked)} style={{ marginRight: "8px" }} />
                 黑洞模式(深度压缩)
               </label>
-            </div>
-          </div>
-        )
-
-      case "skills":
-        return (
-          <div style={{ padding: "24px" }}>
-            <h2 style={sectionTitleStyle}>技能管理</h2>
-            {error && <div style={errorStyle}>{error}</div>}
-            <div>
-              {skills.length === 0 && <div style={emptyStyle}>暂无技能</div>}
-              {skills.map((s) => (
-                <div key={s.id} style={cardStyle}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>{s.name}</div>
-                      <div style={{ fontSize: "var(--font-xs)", color: "var(--text-secondary)" }}>{s.description}</div>
-                    </div>
-                    <label style={{ cursor: "pointer" }}>
-                      <input type="checkbox" checked={s.enabled} onChange={() => toggleSkill(s.id, s.enabled)} />
-                    </label>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         )
@@ -739,75 +632,6 @@ export default function Settings() {
           </div>
         )
 
-      case "scheduler":
-        return (
-          <div style={{ padding: "24px" }}>
-            <h2 style={sectionTitleStyle}>调度任务</h2>
-            {error && <div style={errorStyle}>{error}</div>}
-            <div style={{ marginBottom: "16px" }}>
-              <button style={btnPrimaryStyle} onClick={() => { setJobForm({ name: "", cron_expr: "0 * * * *", action_type: "ping", action_params: "{}" }); setShowJobForm(true); setError("") }}>+ 添加任务</button>
-            </div>
-            <div>
-              {jobs.length === 0 && <div style={emptyStyle}>暂无定时任务</div>}
-              {jobs.map((j) => (
-                <div key={j.id} style={cardStyle}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>{j.name}</div>
-                      <div style={{ fontSize: "var(--font-xs)", color: "var(--text-secondary)" }}>
-                        Cron: {j.cron_expr} · {j.enabled ? "启用" : "禁用"}
-                      </div>
-                    </div>
-                    <button style={btnDangerStyle} onClick={() => deleteJob(j.id)}>删除</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )
-
-      case "mcp":
-        return (
-          <div style={{ padding: "24px" }}>
-            <h2 style={sectionTitleStyle}>MCP 管理</h2>
-            {error && <div style={errorStyle}>{error}</div>}
-
-            <h3 style={subTitleStyle}>服务器</h3>
-            <div style={{ marginBottom: "16px" }}>
-              <button style={btnPrimaryStyle} onClick={() => { setMcpServerForm({ name: "", transport: "stdio", command: "", args: "" }); setShowMcpServerForm(true); setError("") }}>+ 添加服务器</button>
-            </div>
-            <div>
-              {mcpServers.length === 0 && <div style={emptyStyle}>暂无 MCP 服务器</div>}
-              {mcpServers.map((s) => (
-                <div key={s.name} style={cardStyle}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>{s.name}</div>
-                      <div style={{ fontSize: "var(--font-xs)", color: "var(--text-secondary)" }}>
-                        {s.transport || "unknown"} · {s.url || s.command || ""}
-                      </div>
-                    </div>
-                    <button style={btnDangerStyle} onClick={() => deleteMcpServer(s.name)}>删除</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <h3 style={{ ...subTitleStyle, marginTop: "24px" }}>工具</h3>
-            <div>
-              {mcpTools.length === 0 && <div style={emptyStyle}>暂无工具</div>}
-              {mcpTools.map((t, i) => (
-                <div key={i} style={cardStyle}>
-                  <div>
-                    <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>{t.name}</div>
-                    <div style={{ fontSize: "var(--font-xs)", color: "var(--text-secondary)" }}>{t.description}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )
-
 case "about":
         return (
           <div style={{ padding: "24px" }}>
@@ -992,61 +816,6 @@ case "about":
         </div>
       )}
 
-      {/* 调度任务添加弹窗 */}
-      {showJobForm && (
-        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowJobForm(false)}>
-          <div className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
-              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加任务</h3>
-            </div>
-            <div style={{ padding: 'var(--spacing-lg)' }}>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>任务名称</label>
-                <input value={jobForm.name} onInput={(e) => setJobForm(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))} placeholder="每日清理" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-              </div>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Cron 表达式</label>
-                <input value={jobForm.cron_expr} onInput={(e) => setJobForm(prev => ({ ...prev, cron_expr: (e.target as HTMLInputElement).value }))} placeholder="0 * * * *" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-              </div>
-            </div>
-            <div style={{ padding: 'var(--spacing-md) var(--spacing-lg)', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button onClick={() => setShowJobForm(false)} style={btnCancelStyle}>取消</button>
-              <button onClick={saveJob} disabled={savingJob} style={btnSaveStyle}>{savingJob ? '保存中...' : '保存'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MCP 服务器添加弹窗 */}
-      {showMcpServerForm && (
-        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowMcpServerForm(false)}>
-          <div className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
-              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加 MCP 服务器</h3>
-            </div>
-            <div style={{ padding: 'var(--spacing-lg)' }}>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>服务器名称</label>
-                <input value={mcpServerForm.name} onInput={(e) => setMcpServerForm(prev => ({ ...prev, name: (e.target as HTMLInputElement).value }))} placeholder="my-server" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-              </div>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>传输方式</label>
-                <select value={mcpServerForm.transport} onChange={(e) => setMcpServerForm(prev => ({ ...prev, transport: (e.target as HTMLSelectElement).value }))} style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-                  <option value="stdio">stdio</option><option value="sse">sse</option>
-                </select>
-              </div>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: 'var(--font-sm)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>命令/URL</label>
-                <input value={mcpServerForm.command} onInput={(e) => setMcpServerForm(prev => ({ ...prev, command: (e.target as HTMLInputElement).value }))} placeholder="python server.py" style={{ width: '100%', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-              </div>
-            </div>
-            <div style={{ padding: 'var(--spacing-md) var(--spacing-lg)', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button onClick={() => setShowMcpServerForm(false)} style={btnCancelStyle}>取消</button>
-              <button onClick={saveMcpServer} disabled={savingMcpServer} style={btnSaveStyle}>{savingMcpServer ? '保存中...' : '保存'}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -1070,13 +839,6 @@ const sectionTitleStyle: any = {
   fontWeight: 700,
   color: "var(--text-primary)",
   marginBottom: "20px",
-}
-
-const subTitleStyle: any = {
-  fontSize: "var(--font-base)",
-  fontWeight: 600,
-  color: "var(--text-primary)",
-  marginBottom: "12px",
 }
 
 const formGroupStyle: any = {

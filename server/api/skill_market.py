@@ -25,14 +25,23 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
+from ..core.event_bus import get_event_bus
+from ..db.engine import async_session
+from ..db.orm import Skill as SkillRow
+from ..services.community_registry import get_community_registry
+from ..services.skill_loader import SkillLoader
 from ..services.skill_package import SkillManifest, SkillPackager, SkillInstaller
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/skill-market", tags=["skill-market"])
@@ -45,6 +54,67 @@ router = APIRouter(prefix="/skill-market", tags=["skill-market"])
 
 _MARKET: dict[str, dict] = {}
 _PUBLISHED_DATA: dict[str, bytes] = {}
+
+# Phase 3-C: SkillLoader 单例 (供 builtin 端点使用, 与 skills.py 的 _loader 独立但扫描同一目录)
+_loader = SkillLoader()
+
+
+# ===== Phase 3-C: 内置/社区技能市场端点 =====
+
+
+async def _load_enabled_map() -> dict[str, bool]:
+    """从 DB 读取所有 Skill 行的 {name: enabled} 映射 (best-effort)"""
+    try:
+        async with async_session() as session:
+            rows = (await session.execute(select(SkillRow))).scalars().all()
+            return {row.name: bool(row.enabled) for row in rows}
+    except Exception:
+        logger.debug("加载 Skill.enabled 映射失败 (DB 不可用?)", exc_info=True)
+        return {}
+
+
+async def _persist_skill_enabled(name: str, enabled: bool) -> None:
+    """持久化 enabled 到 DB (upsert by name)"""
+    try:
+        async with async_session() as session:
+            row = (
+                await session.execute(select(SkillRow).where(SkillRow.name == name))
+            ).scalar_one_or_none()
+            if row is None:
+                row = SkillRow(name=name, enabled=enabled, source="builtin")
+                session.add(row)
+            else:
+                row.enabled = enabled
+            await session.commit()
+    except Exception:
+        logger.warning("持久化 Skill.enabled 失败 name=%s", name, exc_info=True)
+
+
+async def _publish_skill_toggled(name: str, enabled: bool) -> None:
+    """发布 skill.enabled.toggled 事件 (异常吞掉)"""
+    try:
+        bus = get_event_bus()
+        await bus.publish(
+            "skill.enabled.toggled",
+            {"skill_id": name, "enabled": enabled},
+            source="skill_market_api",
+        )
+    except Exception:
+        logger.debug("publish skill.enabled.toggled 失败 name=%s", name, exc_info=True)
+
+
+class CommunityInstallRequest(BaseModel):
+    """从社区安装技能请求"""
+
+    skill_url: str = Field(..., description="技能资源 URL (git/pip/npm/registry)")
+    install_type: str = Field(default="git", description="安装类型: git/pip/npm/registry")
+    name: str | None = Field(default=None, description="可选: 自定义技能名")
+
+
+class ToggleEnabledRequest(BaseModel):
+    """切换技能 enabled 状态请求"""
+
+    enabled: bool = Field(..., description="目标启用状态")
 
 
 # ===== Pydantic 模型 =====
@@ -325,6 +395,90 @@ async def list_market_skills():
         "data": {"count": len(items), "skills": items},
         "error": None,
     }
+
+
+# ===== Phase 3-C: 内置/社区技能市场端点 =====
+#
+# 端点总览:
+# - GET  /skill-market/builtin              列出内置技能 + enabled 状态
+# - PUT  /skill-market/builtin/{name}/toggle 切换内置技能 enabled (持久化 + 发布事件)
+# - GET  /skill-market/community/search     搜索社区技能 (调 community_registry)
+# - POST /skill-market/community/install    安装社区技能
+# - GET  /skill-market/sources              列出支持的社区源
+
+
+@router.get("/builtin", summary="列出内置技能", description="列出所有内置技能及其 enabled 状态")
+async def list_builtin_skills():
+    """列出内置技能 + enabled 状态 (合并 DB 权威值)"""
+    all_skills = await _loader.scan_all()
+    builtin = [s for s in all_skills if s.source == "builtin"]
+    enabled_map = await _load_enabled_map()
+    items = []
+    for s in builtin:
+        item = {
+            "name": s.name,
+            "description": s.description,
+            "source": s.source,
+            "path": s.path,
+            "tags": s.tags,
+            "enabled": enabled_map.get(s.name, True),  # DB 权威, 默认启用
+        }
+        items.append(item)
+    return {"ok": True, "data": {"count": len(items), "skills": items}, "error": None}
+
+
+@router.put("/builtin/{name}/toggle", summary="切换内置技能 enabled", description="切换内置技能启用状态并持久化到 DB + 发布事件")
+async def toggle_builtin_skill(name: str, req: ToggleEnabledRequest):
+    """切换内置技能 enabled 状态 (持久化 + 发布 skill.enabled.toggled 事件)"""
+    # 验证技能存在
+    skill = await _loader.load_skill(name)
+    if not skill:
+        raise HTTPException(
+            status_code=404,
+            detail={"ok": False, "data": None, "error": f"Skill not found: {name}"},
+        )
+    await _persist_skill_enabled(name, req.enabled)
+    await _publish_skill_toggled(name, req.enabled)
+    return {
+        "ok": True,
+        "data": {"name": name, "enabled": req.enabled},
+        "error": None,
+    }
+
+
+@router.get("/community/search", summary="搜索社区技能", description="搜索社区注册表中的技能 (agentskills.io / Claude marketplace / Smithery)")
+async def search_community_skills(
+    q: str = Query(default="", description="搜索关键词"),
+    source: str = Query(default="all", description="指定社区源: all/agentskills/claude/smithery"),
+    limit: int = Query(default=20, ge=1, le=100, description="返回数量上限"),
+):
+    """搜索社区技能 (调 community_registry)"""
+    client = get_community_registry()
+    results = await client.search(query=q, source=source, limit=limit)
+    return {
+        "ok": True,
+        "data": {"query": q, "source": source, "count": len(results), "skills": results},
+        "error": None,
+    }
+
+
+@router.post("/community/install", summary="安装社区技能", description="从社区注册表安装技能 (git/pip/npm/registry)")
+async def install_community_skill(req: CommunityInstallRequest):
+    """安装社区技能 (调 community_registry)"""
+    client = get_community_registry()
+    result = await client.install(skill_url=req.skill_url, install_type=req.install_type)
+    if not result.get("success", False):
+        # 占位实现返回 success=False, 但不抛 HTTPException (前端可显示提示)
+        return {"ok": False, "data": result, "error": result.get("error")}
+    return {"ok": True, "data": result, "error": None}
+
+
+@router.get("/sources", summary="列出社区源", description="列出支持的社区注册表源")
+async def list_community_sources():
+    """列出支持的社区源"""
+    client = get_community_registry()
+    sources = client.list_sources()
+    return {"ok": True, "data": {"count": len(sources), "sources": sources}, "error": None}
 
 
 # ===== 测试辅助(仅用于重置市场状态,不暴露给生产) =====

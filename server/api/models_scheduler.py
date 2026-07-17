@@ -25,3 +25,15 @@ class MonitorStartRequest(BaseModel):
     """启动健康监控请求"""
 
     interval_seconds: int = 300
+
+
+class HealthStartRequest(BaseModel):
+    """v2.3.0 Phase 3-D: 全局启动健康检查请求"""
+
+    interval_seconds: int = 300
+
+
+class ProviderToggleRequest(BaseModel):
+    """v2.3.0 Phase 3-D: 单 Provider 启停请求"""
+
+    enabled: bool

@@ -42,6 +42,11 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("personas", "browser_use_enabled", "BOOLEAN DEFAULT 0"),
     # v2.2.1 F7: computer_* 工具独立权限字段 (默认关闭,安全优先)
     ("personas", "computer_use_enabled", "BOOLEAN DEFAULT 0"),
+    # v2.3.0 A3: 角色三元组 (CrewAI) + allowed_paths (PathGuard)
+    ("personas", "role", "VARCHAR(255)"),
+    ("personas", "goal", "TEXT"),
+    ("personas", "backstory", "TEXT"),
+    ("personas", "allowed_paths", "TEXT"),
     # v2.2.0 Conversation 状态
     ("conversations", "status", "VARCHAR(20) DEFAULT 'idle'"),
     # v2.2.0 Message 工具调用持久化

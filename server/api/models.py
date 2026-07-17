@@ -9,6 +9,11 @@ class PersonaCreate(BaseModel):
     model_provider: str = Field("openai", description="LLM Provider 名称")
     model_name: str = Field("gpt-4o", description="模型名称")
     avatar: str = Field("", description="头像 URL 或 base64")
+    # v2.3.0 A3: 角色三元组 (CrewAI) + allowed_paths (PathGuard)
+    role: str | None = Field(None, description="角色定位,如 架构师/编码者/评审")
+    goal: str | None = Field(None, description="角色目标")
+    backstory: str | None = Field(None, description="角色背景故事")
+    allowed_paths: str | None = Field(None, description="允许访问的路径白名单,逗号分隔")
 
 
 class PersonaUpdate(BaseModel):
@@ -19,6 +24,19 @@ class PersonaUpdate(BaseModel):
     model_provider: str | None = Field(None, description="LLM Provider 名称")
     model_name: str | None = Field(None, description="模型名称")
     avatar: str | None = Field(None, description="头像")
+    # v2.3.0 A3: 角色三元组 + allowed_paths (部分更新)
+    role: str | None = Field(None, description="角色定位")
+    goal: str | None = Field(None, description="角色目标")
+    backstory: str | None = Field(None, description="角色背景故事")
+    allowed_paths: str | None = Field(None, description="允许访问的路径白名单")
+
+
+class PersonaRelationCreate(BaseModel):
+    """v2.3.0 A3 — 创建角色关联关系"""
+
+    target_id: int = Field(..., description="目标角色 ID")
+    relation_type: str = Field("complement", description="关系类型: complement/assist/delegate")
+    strength: float = Field(0.5, description="关系强度 0.0-1.0")
 
 
 class PersonaActivate(BaseModel):
@@ -132,6 +150,8 @@ class SkillUpdate(BaseModel):
     category: str | None = Field(None, description="技能分类")
     prompt_template: str | None = Field(None, description="提示词模板")
     tags: list[str] | None = Field(None, description="标签列表")
+    # v2.3.0 Phase 3-C: enabled 持久化开关 (持久化到 DB Skill.enabled 列)
+    enabled: bool | None = Field(None, description="启用状态")
 
 
 class SkillExecuteRequest(BaseModel):
@@ -159,9 +179,16 @@ class WikiUpdate(BaseModel):
 
 
 class WikiCompileRequest(BaseModel):
-    """从对话编译 Wiki 笔记"""
+    """从对话编译 Wiki 笔记
 
-    conversation_id: int
+    v2.3.0 Phase 3-D: 支持多对话编译。
+    - conversation_id: 单对话 (向后兼容, 仍可用)
+    - conversation_ids: 多对话列表 (新增, 优先使用)
+    二者至少提供一个; 同时提供时以 conversation_ids 为准。
+    """
+
+    conversation_id: int | None = None
+    conversation_ids: list[int] | None = None
     persona_id: int | None = None
     title: str | None = None
     tags: list[str] = []

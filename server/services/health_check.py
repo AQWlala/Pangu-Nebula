@@ -28,7 +28,7 @@ class HealthCheckService:
     """Provider 健康检查服务(模块级单例)"""
 
     def __init__(self) -> None:
-        # name -> {name, healthy, latency_ms, last_check, error, consecutive_failures, status}
+        # name -> {name, healthy, latency_ms, last_check, error, consecutive_failures, status, enabled}
         self._status: dict[str, dict] = {}
         # name -> list[{timestamp, healthy, latency_ms, error}]
         self._history: dict[str, list[dict]] = {}
@@ -37,6 +37,10 @@ class HealthCheckService:
         self._monitor_interval: int = 300
         self._monitor_running: bool = False
         self._monitor_last_check: str | None = None
+        # v2.3.0 Phase 3-D: 全局启停 (默认 True, 关闭后监控循环不再触发检查)
+        self._global_enabled: bool = True
+        # v2.3.0 Phase 3-D: 单 Provider 启停 (name -> enabled, 缺省视为 True)
+        self._provider_enabled: dict[str, bool] = {}
 
     # ===== 核心检查方法 =====
 
@@ -65,12 +69,21 @@ class HealthCheckService:
         return self._record(name, healthy, latency_ms, error)
 
     async def check_all(self) -> list[dict]:
-        """检查所有已注册 Provider,返回状态列表"""
+        """检查所有已注册 Provider,返回状态列表
+
+        v2.3.0 Phase 3-D: 跳过被禁用的 Provider (但仍在结果中返回其上次状态 + enabled=False)
+        """
         providers = list_providers()
         results: list[dict] = []
         for info in providers:
             name = info.get("name")
             if not name:
+                continue
+            # v2.3.0 Phase 3-D: 跳过被禁用的 Provider (监控循环不检查已禁用项)
+            if not self.is_provider_enabled(name):
+                prev = self._status.get(name)
+                if prev is not None:
+                    results.append(prev)
                 continue
             try:
                 status = await self.check_provider(name)
@@ -146,14 +159,139 @@ class HealthCheckService:
             "last_check": self._monitor_last_check,
         }
 
+    # ===== v2.3.0 Phase 3-D: 全局启停 + 单 Provider 测试/开关 + 状态汇总 =====
+
+    def is_provider_enabled(self, name: str) -> bool:
+        """单 Provider 是否启用 (未设置视为 True)"""
+        return self._provider_enabled.get(name, True)
+
+    def start_global(self, interval_seconds: int = 300) -> dict:
+        """全局启动健康检查: 置 _global_enabled=True + 启动后台监控
+
+        - 若监控已在运行,仅更新 global 标记 (不重启监控)
+        - 若监控未运行,启动监控
+        """
+        self._global_enabled = True
+        monitor_status = self.get_monitor_status()
+        if not monitor_status["running"]:
+            monitor_status = self.start_monitor(interval_seconds=interval_seconds)
+        return {
+            "global_enabled": True,
+            "monitor": monitor_status,
+        }
+
+    def stop_global(self) -> dict:
+        """全局停止健康检查: 置 _global_enabled=False + 停止后台监控"""
+        self._global_enabled = False
+        monitor_status = self.stop_monitor()
+        return {
+            "global_enabled": False,
+            "monitor": monitor_status,
+        }
+
+    def get_global_status(self) -> dict:
+        """获取全局开关 + 监控状态"""
+        monitor_status = self.get_monitor_status()
+        return {
+            "global_enabled": self._global_enabled,
+            "monitor": monitor_status,
+        }
+
+    async def test_provider(self, name: str) -> dict:
+        """单 Provider 测试 (忽略 enabled 标记, 强制执行一次检查)
+
+        与 check_provider 的区别:
+        - check_provider: 常规检查 (监控循环 / 手动检查用)
+        - test_provider: 用户点击"测试"按钮时调用, 即使 Provider 被禁用也执行
+        """
+        # 复用 check_provider 的逻辑 (忽略 _provider_enabled)
+        return await self.check_provider(name)
+
+    def toggle_provider(self, name: str, enabled: bool) -> dict:
+        """单 Provider 启停
+
+        - enabled=False: 监控循环将跳过此 Provider
+        - enabled=True: 恢复监控
+        - 不影响手动 check_provider / test_provider
+        """
+        if not is_registered(name):
+            raise ValueError(f"Provider '{name}' not registered")
+        self._provider_enabled[name] = bool(enabled)
+        # 同步更新状态条目的 enabled 字段
+        prev = self._status.get(name)
+        if prev is not None:
+            prev["enabled"] = bool(enabled)
+        return {
+            "name": name,
+            "enabled": bool(enabled),
+            "healthy": prev.get("healthy") if prev else None,
+            "status": prev.get("status") if prev else "unknown",
+            "latency_ms": prev.get("latency_ms") if prev else None,
+            "last_check": prev.get("last_check") if prev else None,
+        }
+
+    def get_full_status(self) -> dict:
+        """获取全局状态 + 所有 Provider 状态 (用于仪表盘)
+
+        返回:
+            {
+                "global_enabled": bool,
+                "monitor": {...},
+                "providers": [{name, healthy, status, latency_ms, enabled, ...}, ...],
+                "summary": {total, healthy, degraded, down, disabled}
+            }
+        """
+        monitor_status = self.get_monitor_status()
+        providers: list[dict] = []
+        # 合并已注册 Provider 与已记录状态
+        registered_names: set[str] = set()
+        for info in list_providers():
+            name = info.get("name")
+            if name:
+                registered_names.add(name)
+        all_names = registered_names | set(self._status.keys())
+        for name in all_names:
+            entry = dict(self._status.get(name, {}))
+            entry.setdefault("name", name)
+            entry.setdefault("healthy", None)
+            entry.setdefault("status", "unknown")
+            entry.setdefault("latency_ms", None)
+            entry.setdefault("last_check", None)
+            entry["enabled"] = self.is_provider_enabled(name)
+            providers.append(entry)
+
+        # 汇总统计
+        total = len(providers)
+        healthy_count = sum(1 for p in providers if p.get("healthy") is True)
+        degraded_count = sum(1 for p in providers if p.get("status") == "degraded")
+        down_count = sum(1 for p in providers if p.get("status") == "down")
+        disabled_count = sum(1 for p in providers if not p.get("enabled", True))
+
+        return {
+            "global_enabled": self._global_enabled,
+            "monitor": monitor_status,
+            "providers": providers,
+            "summary": {
+                "total": total,
+                "healthy": healthy_count,
+                "degraded": degraded_count,
+                "down": down_count,
+                "disabled": disabled_count,
+            },
+        }
+
     # ===== 内部方法 =====
 
     async def _monitor_loop(self) -> None:
-        """后台监控循环:按间隔周期性执行 check_all"""
+        """后台监控循环:按间隔周期性执行 check_all
+
+        v2.3.0 Phase 3-D: 若全局开关关闭 (_global_enabled=False), 跳过检查但保持循环存活
+        """
         try:
             while self._monitor_running:
                 try:
-                    await self.check_all()
+                    if self._global_enabled:
+                        await self.check_all()
                 except Exception:  # noqa: BLE001
                     # 监控循环不应因单次异常退出
                     pass
@@ -193,6 +331,8 @@ class HealthCheckService:
             "last_check": now_iso,
             "error": error,
             "consecutive_failures": consecutive_failures,
+            # v2.3.0 Phase 3-D: 单 Provider 启停状态 (未设置视为 True)
+            "enabled": self.is_provider_enabled(name),
         }
         self._status[name] = status_entry
 

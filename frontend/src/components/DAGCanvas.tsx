@@ -1,10 +1,13 @@
-// DAG 画布组件 (T2.2)
+// DAG 画布组件 (T2.2 + v2.3.0 多 DAG + SSE)
 // - 可视化渲染 DAG 节点和边
 // - 节点状态颜色: pending(灰)/running(蓝)/completed(绿)/failed(红)/skipped(黄)
 // - 点击节点 -> 主区域显示 worker 对话
 // - 自包含 SVG 边 + DOM 节点的混合实现,兼容 Preact
-import { useState, useEffect, useMemo, useCallback } from 'preact/hooks'
+// - v2.3.0: 多 DAG 并排渲染,通过 store.visibleDagIds 驱动
+// - v2.3.0: SSE 订阅 (通过 store.runningTasks),running 节点自动聚焦
+import { useState, useEffect, useMemo, useCallback, useRef } from 'preact/hooks'
 import { apiGet, apiPost } from '../lib/api'
+import { useGlobalState } from '../lib/store'
 import ApprovalBanner from './ApprovalBanner'
 import NodeConfigPanel from './NodeConfigPanel'
 
@@ -207,54 +210,38 @@ function extractWorkerMessages(node: DAGNode): WorkerMessage[] {
   return messages
 }
 
-export default function DAGCanvas() {
-  const [dags, setDags] = useState<DAGSummary[]>([])
-  const [selectedDagId, setSelectedDagId] = useState<string | null>(null)
+// =========================================================================
+// DAGView 子组件 — 单 DAG 的完整渲染 (画布 + 节点详情 + 配置面板)
+// =========================================================================
+
+interface DAGViewProps {
+  dagId: string
+  /** 变化时触发重新加载 DAG 数据 (SSE 驱动) */
+  refreshTrigger: number
+  /** 是否为当前聚焦的 DAG (影响布局权重) */
+  isSelected: boolean
+  /** 点击选中此 DAG */
+  onSelect: () => void
+}
+
+function DAGView({ dagId, refreshTrigger, isSelected, onSelect }: DAGViewProps) {
   const [dagData, setDagData] = useState<DAGData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  // 选中的节点(显示 worker 对话)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  // 是否显示节点配置面板(T2.4)
   const [showConfigPanel, setShowConfigPanel] = useState(false)
 
-  // 创建 DAG 表单
-  const [createOpen, setCreateOpen] = useState(false)
-  const [newDagId, setNewDagId] = useState('')
-  const [creating, setCreating] = useState(false)
-
-  // 加载 DAG 列表
-  const loadDags = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const data = await apiGet<DAGSummary[]>('/dag/list')
-      setDags(data || [])
-      if (data && data.length > 0 && !selectedDagId) {
-        setSelectedDagId(data[0].dag_id)
-      }
-    } catch (e: any) {
-      setError(e?.message || '加载 DAG 列表失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [selectedDagId])
-
-  useEffect(() => {
-    loadDags()
-  }, [])
+  // 画布容器 ref (用于 running 节点自动聚焦滚动)
+  const canvasContainerRef = useRef<HTMLDivElement>(null)
+  // running 节点 ref (自动聚焦)
+  const runningNodeRef = useRef<HTMLDivElement | null>(null)
 
   // 加载 DAG 详情
   useEffect(() => {
-    if (!selectedDagId) {
-      setDagData(null)
-      setSelectedNodeId(null)
-      return
-    }
     let cancelled = false
+    setLoading(true)
     setError(null)
-    apiGet<DAGData>(`/dag/${encodeURIComponent(selectedDagId)}`)
+    apiGet<DAGData>(`/dag/${encodeURIComponent(dagId)}`)
       .then((data) => {
         if (!cancelled) {
           setDagData(data)
@@ -263,14 +250,18 @@ export default function DAGCanvas() {
       })
       .catch((e: any) => {
         if (!cancelled) {
+          // 多 DAG 模式下 dag-swarm-{id} 可能尚未持久化,静默处理
           setError(e?.message || '加载 DAG 详情失败')
           setDagData(null)
         }
       })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
     return () => {
       cancelled = true
     }
-  }, [selectedDagId])
+  }, [dagId, refreshTrigger])
 
   // 计算节点布局
   const layout = useMemo(() => {
@@ -290,39 +281,27 @@ export default function DAGCanvas() {
     return extractWorkerMessages(selectedNode)
   }, [selectedNode])
 
-  // 创建示例 DAG
-  async function handleCreateSample() {
-    if (!newDagId.trim()) {
-      setError('请填写 DAG ID')
-      return
+  // 第一个 running 节点 (用于自动聚焦)
+  const runningNodeId = useMemo(() => {
+    if (!dagData) return null
+    const running = dagData.nodes.find((n) => n.status === 'running')
+    return running?.node_id || null
+  }, [dagData])
+
+  // running 节点自动聚焦: 数据变化时滚动到 running 节点
+  useEffect(() => {
+    if (runningNodeRef.current && canvasContainerRef.current) {
+      try {
+        runningNodeRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+          inline: 'center',
+        })
+      } catch {
+        // 某些环境不支持 scrollIntoView options,忽略
+      }
     }
-    setCreating(true)
-    setError(null)
-    try {
-      await apiPost('/dag', {
-        dag_id: newDagId.trim(),
-        nodes: [
-          { node_id: 'start', title: '开始', node_type: 'task', status: 'pending', brief: '开始执行任务' },
-          { node_id: 'review', title: '审批', node_type: 'approval', status: 'pending', brief: '请审批此计划' },
-          { node_id: 'exec', title: '执行', node_type: 'task', status: 'pending', brief: '执行核心任务' },
-          { node_id: 'end', title: '结束', node_type: 'task', status: 'pending', brief: '汇总结果' },
-        ],
-        edges: [
-          { source_node_id: 'start', target_node_id: 'review' },
-          { source_node_id: 'review', target_node_id: 'exec' },
-          { source_node_id: 'exec', target_node_id: 'end' },
-        ],
-      })
-      setCreateOpen(false)
-      setNewDagId('')
-      await loadDags()
-      setSelectedDagId(newDagId.trim())
-    } catch (e: any) {
-      setError(e?.message || '创建 DAG 失败')
-    } finally {
-      setCreating(false)
-    }
-  }
+  }, [dagData, runningNodeId])
 
   // 计算画布尺寸
   const canvasSize = useMemo(() => {
@@ -347,65 +326,55 @@ export default function DAGCanvas() {
 
   return (
     <div
-      className="rounded-2xl p-5 flex flex-col gap-4"
+      className="flex flex-col gap-3 rounded-xl p-3"
       style={{
         background: 'var(--bg-card)',
-        boxShadow: 'var(--shadow-lg)',
-        border: '1px solid var(--border)',
+        border: isSelected ? '2px solid var(--accent)' : '1px solid var(--border)',
+        minWidth: 480,
+        flex: isSelected ? '1 1 0' : '0 0 auto',
+        maxWidth: isSelected ? 'none' : 520,
       }}
     >
-      {/* 顶部标题 */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>
-          🕸 DAG 画布
-        </h2>
-        <button
-          onClick={() => setCreateOpen(true)}
-          className="px-4 py-1.5 rounded-lg text-sm font-medium text-white"
-          style={{ background: 'var(--accent)' }}
-        >
-          + 新建 DAG
-        </button>
-      </div>
-
-      {/* DAG 选择器 */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-          选择 DAG:
+      {/* DAG 标题栏 */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+          🕸 {dagId}
         </span>
-        {dags.length === 0 ? (
-          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            暂无 DAG,点击右上角创建
+        {runningNodeId && (
+          <span
+            className="px-2 py-0.5 rounded-full text-xs"
+            style={{
+              background: STATUS_COLORS.running.bg,
+              color: STATUS_COLORS.running.text,
+              border: `1px solid ${STATUS_COLORS.running.border}`,
+            }}
+          >
+            🔄 运行中
           </span>
-        ) : (
-          dags.map((d) => (
-            <button
-              key={d.dag_id}
-              onClick={() => setSelectedDagId(d.dag_id)}
-              className="px-3 py-1 rounded-lg text-xs transition"
-              style={{
-                background:
-                  selectedDagId === d.dag_id ? 'var(--accent)' : 'var(--bg-secondary)',
-                color: selectedDagId === d.dag_id ? '#fff' : 'var(--text-primary)',
-                border: '1px solid var(--border)',
-              }}
-            >
-              {d.dag_id} ({d.node_count})
-            </button>
-          ))
+        )}
+        {!isSelected && (
+          <button
+            onClick={onSelect}
+            className="ml-auto px-2 py-0.5 rounded text-xs"
+            style={{
+              background: 'var(--bg-secondary)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            聚焦
+          </button>
         )}
       </div>
 
       {/* 执行前审批横幅 (T2.3) */}
       <ApprovalBanner
-        dagId={selectedDagId}
+        dagId={dagId}
         onChanged={() => {
           // 审批状态变化后重新加载 DAG 数据
-          if (selectedDagId) {
-            apiGet<DAGData>(`/dag/${encodeURIComponent(selectedDagId)}`)
-              .then((data) => setDagData(data))
-              .catch(() => {})
-          }
+          apiGet<DAGData>(`/dag/${encodeURIComponent(dagId)}`)
+            .then((data) => setDagData(data))
+            .catch(() => {})
         }}
       />
 
@@ -432,18 +401,19 @@ export default function DAGCanvas() {
           style={{ color: 'var(--text-secondary)' }}
         >
           <div className="text-5xl">🕸</div>
-          <div>选择或创建一个 DAG 以查看画布</div>
+          <div className="text-sm">DAG 数据为空或尚未创建</div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-3">
           {/* 左侧:画布 */}
           <div
+            ref={canvasContainerRef}
             className="rounded-xl p-3 overflow-auto"
             style={{
               background: 'var(--bg-primary)',
               border: '1px solid var(--border)',
-              minHeight: 480,
-              maxHeight: 600,
+              minHeight: 400,
+              maxHeight: 560,
             }}
           >
             <div
@@ -461,7 +431,7 @@ export default function DAGCanvas() {
               >
                 <defs>
                   <marker
-                    id="arrow"
+                    id={`arrow-${dagId}`}
                     markerWidth="10"
                     markerHeight="10"
                     refX="9"
@@ -488,7 +458,7 @@ export default function DAGCanvas() {
                         stroke={edge.edge_type === 'condition' ? '#F59E0B' : '#9CA3AF'}
                         strokeWidth={2}
                         strokeDasharray={edge.edge_type === 'condition' ? '5,5' : 'none'}
-                        markerEnd="url(#arrow)"
+                        markerEnd={`url(#arrow-${dagId})`}
                       />
                       {edge.condition && (
                         <text
@@ -513,10 +483,12 @@ export default function DAGCanvas() {
                 const pos = layout.get(node.node_id)
                 if (!pos) return null
                 const color = STATUS_COLORS[node.status] || STATUS_COLORS.pending
-                const isSelected = selectedNodeId === node.node_id
+                const isSelectedNode = selectedNodeId === node.node_id
+                const isRunning = node.status === 'running'
                 return (
                   <div
                     key={node.id}
+                    ref={isRunning ? runningNodeRef : undefined}
                     onClick={() => setSelectedNodeId(node.node_id)}
                     style={{
                       position: 'absolute',
@@ -525,16 +497,18 @@ export default function DAGCanvas() {
                       width: NODE_WIDTH,
                       height: NODE_HEIGHT,
                       background: color.bg,
-                      border: `2px solid ${isSelected ? 'var(--accent)' : color.border}`,
+                      border: `2px solid ${isSelectedNode ? 'var(--accent)' : color.border}`,
                       borderRadius: 10,
                       padding: '8px 10px',
                       cursor: 'pointer',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: 4,
-                      boxShadow: isSelected
+                      boxShadow: isSelectedNode
                         ? '0 4px 12px rgba(0,0,0,0.15)'
-                        : '0 1px 3px rgba(0,0,0,0.08)',
+                        : isRunning
+                          ? '0 0 0 3px rgba(59, 130, 246, 0.3)'
+                          : '0 1px 3px rgba(0,0,0,0.08)',
                       transition: 'box-shadow 0.15s, border-color 0.15s',
                     }}
                   >
@@ -592,7 +566,7 @@ export default function DAGCanvas() {
             style={{
               background: 'var(--bg-primary)',
               border: '1px solid var(--border)',
-              maxHeight: 600,
+              maxHeight: 560,
             }}
           >
             {selectedNode ? (
@@ -744,7 +718,7 @@ export default function DAGCanvas() {
       )}
 
       {/* 节点配置面板 (T2.4) - 浮层 */}
-      {showConfigPanel && selectedDagId && selectedNode && (
+      {showConfigPanel && selectedNode && (
         <div
           className="fixed inset-0 flex items-center justify-center p-4 z-50"
           style={{ background: 'rgba(0,0,0,0.4)' }}
@@ -755,19 +729,282 @@ export default function DAGCanvas() {
             onClick={(e) => e.stopPropagation()}
           >
             <NodeConfigPanel
-              dagId={selectedDagId}
+              dagId={dagId}
               node={selectedNode}
               onClose={() => setShowConfigPanel(false)}
               onPrechecked={() => {
                 // 预检成功后刷新 DAG 数据
-                if (selectedDagId) {
-                  apiGet<DAGData>(`/dag/${encodeURIComponent(selectedDagId)}`)
-                    .then((data) => setDagData(data))
-                    .catch(() => {})
-                }
+                apiGet<DAGData>(`/dag/${encodeURIComponent(dagId)}`)
+                  .then((data) => setDagData(data))
+                  .catch(() => {})
               }}
             />
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// =========================================================================
+// DAGCanvas 主组件 — DAG 列表 + 多 DAG 并排渲染
+// =========================================================================
+
+export default function DAGCanvas() {
+  const [dags, setDags] = useState<DAGSummary[]>([])
+  const [selectedDagId, setSelectedDagId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // 创建 DAG 表单
+  const [createOpen, setCreateOpen] = useState(false)
+  const [newDagId, setNewDagId] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  // SSE 驱动的刷新触发器 (runningTasks 变化时递增,触发 DAGView 重新加载)
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+
+  // 从全局 store 获取 SSE 状态 (v2.3.0: 多 DAG + 实时事件)
+  const { state } = useGlobalState()
+  const visibleDagIds = state.visibleDagIds
+  const runningTasks = state.runningTasks
+  // memoryEvents 作为辅助信号 (链路 2: memory.graph.updated → DAG 实时反映)
+  const memoryEvents = state.memoryEvents
+
+  // 加载 DAG 列表
+  const loadDags = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await apiGet<DAGSummary[]>('/dag/list')
+      setDags(data || [])
+      if (data && data.length > 0 && !selectedDagId) {
+        setSelectedDagId(data[0].dag_id)
+      }
+    } catch (e: any) {
+      setError(e?.message || '加载 DAG 列表失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [selectedDagId])
+
+  useEffect(() => {
+    loadDags()
+  }, [])
+
+  // 监听 runningTasks 变化 (SSE 驱动),触发所有 DAGView 重新加载
+  // swarm.created/started/completed/failed 事件会更新 runningTasks,
+  // dag.node.started/completed 事件也会通过 EVENT_DISPATCH 进入 store,
+  // 这里通过 runningTasks 引用变化感知并刷新画布。
+  useEffect(() => {
+    setRefreshTrigger((t) => t + 1)
+  }, [runningTasks])
+
+  // 辅助信号: memoryEvents 变化时也触发 DAG 刷新
+  // 链路 2: memory.graph.updated → DAGCanvas 实时反映
+  // DAGCanvas 主要订阅 runningTasks,memoryEvents 作为辅助信号确保记忆心跳更新后 DAG 同步刷新
+  useEffect(() => {
+    if (!memoryEvents || memoryEvents.length === 0) return
+    setRefreshTrigger((t) => t + 1)
+  }, [memoryEvents])
+
+  // 多 DAG 模式: visibleDagIds 非空时并排渲染
+  const multiDagMode = visibleDagIds.length > 0
+
+  // 多 DAG 模式下,默认聚焦第一个可见 DAG
+  useEffect(() => {
+    if (multiDagMode && !visibleDagIds.includes(selectedDagId || '')) {
+      setSelectedDagId(visibleDagIds[0])
+    }
+  }, [multiDagMode, visibleDagIds, selectedDagId])
+
+  // 创建示例 DAG
+  async function handleCreateSample() {
+    if (!newDagId.trim()) {
+      setError('请填写 DAG ID')
+      return
+    }
+    setCreating(true)
+    setError(null)
+    try {
+      await apiPost('/dag', {
+        dag_id: newDagId.trim(),
+        nodes: [
+          { node_id: 'start', title: '开始', node_type: 'task', status: 'pending', brief: '开始执行任务' },
+          { node_id: 'review', title: '审批', node_type: 'approval', status: 'pending', brief: '请审批此计划' },
+          { node_id: 'exec', title: '执行', node_type: 'task', status: 'pending', brief: '执行核心任务' },
+          { node_id: 'end', title: '结束', node_type: 'task', status: 'pending', brief: '汇总结果' },
+        ],
+        edges: [
+          { source_node_id: 'start', target_node_id: 'review' },
+          { source_node_id: 'review', target_node_id: 'exec' },
+          { source_node_id: 'exec', target_node_id: 'end' },
+        ],
+      })
+      setCreateOpen(false)
+      setNewDagId('')
+      await loadDags()
+      setSelectedDagId(newDagId.trim())
+    } catch (e: any) {
+      setError(e?.message || '创建 DAG 失败')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <div
+      className="rounded-2xl p-5 flex flex-col gap-4"
+      style={{
+        background: 'var(--bg-card)',
+        boxShadow: 'var(--shadow-lg)',
+        border: '1px solid var(--border)',
+      }}
+    >
+      {/* 顶部标题 */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>
+          🕸 DAG 画布
+          {multiDagMode && (
+            <span
+              className="ml-2 px-2 py-0.5 rounded-full text-xs"
+              style={{
+                background: 'var(--accent)',
+                color: '#fff',
+              }}
+            >
+              多任务并排 ({visibleDagIds.length})
+            </span>
+          )}
+        </h2>
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="px-4 py-1.5 rounded-lg text-sm font-medium text-white"
+          style={{ background: 'var(--accent)' }}
+        >
+          + 新建 DAG
+        </button>
+      </div>
+
+      {/* SSE 连接状态指示器 (v2.3.0) */}
+      <div className="flex items-center gap-2">
+        <span
+          className="w-2 h-2 rounded-full"
+          style={{
+            background: state.sseConnected ? '#10B981' : '#9CA3AF',
+            boxShadow: state.sseConnected ? '0 0 6px #10B981' : 'none',
+          }}
+        />
+        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+          {state.sseConnected ? 'SSE 已连接' : 'SSE 未连接'}
+          {runningTasks.length > 0 && ` · ${runningTasks.length} 个运行中任务`}
+        </span>
+      </div>
+
+      {/* DAG 选择器 (单 DAG 模式) */}
+      {!multiDagMode && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            选择 DAG:
+          </span>
+          {dags.length === 0 ? (
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              暂无 DAG,点击右上角创建
+            </span>
+          ) : (
+            dags.map((d) => (
+              <button
+                key={d.dag_id}
+                onClick={() => setSelectedDagId(d.dag_id)}
+                className="px-3 py-1 rounded-lg text-xs transition"
+                style={{
+                  background:
+                    selectedDagId === d.dag_id ? 'var(--accent)' : 'var(--bg-secondary)',
+                  color: selectedDagId === d.dag_id ? '#fff' : 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                {d.dag_id} ({d.node_count})
+              </button>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* 多 DAG 模式: 可见 DAG 标签栏 */}
+      {multiDagMode && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            可见 DAG:
+          </span>
+          {visibleDagIds.map((id) => (
+            <button
+              key={id}
+              onClick={() => setSelectedDagId(id)}
+              className="px-3 py-1 rounded-lg text-xs transition"
+              style={{
+                background:
+                  selectedDagId === id ? 'var(--accent)' : 'var(--bg-secondary)',
+                color: selectedDagId === id ? '#fff' : 'var(--text-primary)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              {id}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <div
+          className="p-3 rounded-lg text-sm"
+          style={{
+            background: 'rgba(239, 68, 68, 0.1)',
+            color: '#EF4444',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+          }}
+        >
+          ⚠️ {error}
+        </div>
+      )}
+
+      {/* 画布区域 */}
+      {loading ? (
+        <div className="text-center py-8" style={{ color: 'var(--text-secondary)' }}>
+          加载中...
+        </div>
+      ) : multiDagMode ? (
+        // 多 DAG 并排渲染 (横向 flex,可滚动)
+        <div
+          className="flex gap-4 overflow-x-auto"
+          style={{ minHeight: 480, paddingBottom: 8 }}
+        >
+          {visibleDagIds.map((id) => (
+            <DAGView
+              key={id}
+              dagId={id}
+              refreshTrigger={refreshTrigger}
+              isSelected={selectedDagId === id}
+              onSelect={() => setSelectedDagId(id)}
+            />
+          ))}
+        </div>
+      ) : selectedDagId ? (
+        // 单 DAG 模式
+        <DAGView
+          key={selectedDagId}
+          dagId={selectedDagId}
+          refreshTrigger={refreshTrigger}
+          isSelected={true}
+          onSelect={() => {}}
+        />
+      ) : (
+        <div
+          className="flex flex-col items-center justify-center gap-2 py-12"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          <div className="text-5xl">🕸</div>
+          <div>选择或创建一个 DAG 以查看画布</div>
         </div>
       )}
 

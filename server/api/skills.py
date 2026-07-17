@@ -1,8 +1,13 @@
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 
+from ..core.event_bus import get_event_bus
+from ..db.engine import async_session
+from ..db.orm import Skill as SkillRow
 from ..services.skill_loader import SkillLoader
 from ..services.sandbox_engine import PythonSandbox
 from .models import SandboxExecuteRequest
@@ -15,11 +20,68 @@ from ..services.skill_package import (
 )
 from .models import SkillCreate, SkillUpdate, SkillExecuteRequest, SkillImportMarkdownRequest
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/skills", tags=["skills"])
 
 _loader = SkillLoader()
 _engine = PromptSkillEngine(_loader)
 _installer = SkillInstaller()
+
+
+# ===== v2.3.0 Phase 3-C: enabled 持久化 + 事件发布 =====
+
+
+async def _load_enabled_map() -> dict[str, bool]:
+    """从 DB 读取所有 Skill 行的 {name: enabled} 映射
+
+    DB 失败时返回空 dict (best-effort, 不阻塞技能列表加载)。
+    """
+    try:
+        async with async_session() as session:
+            rows = (await session.execute(select(SkillRow))).scalars().all()
+            return {row.name: bool(row.enabled) for row in rows}
+    except Exception:
+        logger.debug("加载 Skill.enabled 映射失败 (DB 不可用?)", exc_info=True)
+        return {}
+
+
+async def _persist_skill_enabled(name: str, enabled: bool) -> None:
+    """持久化单个技能的 enabled 状态到 DB
+
+    策略: upsert — 按 name 查询, 存在则更新, 不存在则插入新行。
+    DB 失败仅记录日志, 不抛异常 (CRUD 主流程不被阻断)。
+    """
+    try:
+        async with async_session() as session:
+            row = (
+                await session.execute(select(SkillRow).where(SkillRow.name == name))
+            ).scalar_one_or_none()
+            if row is None:
+                # 插入新行 (source/path 仅作占位, 实际由 loader 管理)
+                row = SkillRow(name=name, enabled=enabled, source="custom")
+                session.add(row)
+            else:
+                row.enabled = enabled
+            await session.commit()
+    except Exception:
+        logger.warning("持久化 Skill.enabled 失败 name=%s", name, exc_info=True)
+
+
+async def _publish_skill_toggled(name: str, enabled: bool) -> None:
+    """发布 skill.enabled.toggled 事件
+
+    异常不阻断主流程 (事件丢失可由下次全量加载修正)。
+    """
+    try:
+        bus = get_event_bus()
+        await bus.publish(
+            "skill.enabled.toggled",
+            {"skill_id": name, "enabled": enabled},
+            source="skills_api",
+        )
+    except Exception:
+        logger.debug("publish skill.enabled.toggled 失败 name=%s", name, exc_info=True)
 
 
 class ImportRequest(BaseModel):
@@ -97,7 +159,15 @@ def _skill_to_dict(skill) -> dict:
 @router.get("", summary="列出技能", description="扫描并返回所有可用的提示词技能(builtin + custom)")
 async def list_skills():
     skills = await _loader.scan_all()
-    return {"ok": True, "data": [_skill_to_dict(s) for s in skills], "error": None}
+    # Phase 3-C: 合并 DB 中的 enabled 状态 (DB 为权威源, loader 默认 True 仅作 fallback)
+    enabled_map = await _load_enabled_map()
+    result = []
+    for s in skills:
+        d = _skill_to_dict(s)
+        if s.name in enabled_map:
+            d["enabled"] = enabled_map[s.name]
+        result.append(d)
+    return {"ok": True, "data": result, "error": None}
 
 
 @router.post("", summary="创建技能", description="创建新提示词技能,写入 data/skills/{name}.md")
@@ -368,23 +438,63 @@ async def get_skill(name: str):
     skill = await _loader.load_skill(name)
     if not skill:
         raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": "Skill not found"})
-    return {"ok": True, "data": {**_skill_to_dict(skill), "content": skill.content}, "error": None}
+    data = {**_skill_to_dict(skill), "content": skill.content}
+    # Phase 3-C: 合并 DB 中的 enabled 状态
+    enabled_map = await _load_enabled_map()
+    if name in enabled_map:
+        data["enabled"] = enabled_map[name]
+    return {"ok": True, "data": data, "error": None}
 
 
-@router.put("/{name}", summary="更新技能", description="更新技能内容(部分更新)")
+@router.put("/{name}", summary="更新技能", description="更新技能内容(部分更新,含 enabled 持久化)")
 async def update_skill(name: str, req: SkillUpdate):
-    """更新技能内容(部分更新)"""
-    try:
-        skill = await _loader.update_skill(
-            name=name,
-            description=req.description,
-            category=req.category,
-            prompt_template=req.prompt_template,
-            tags=req.tags,
-        )
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": str(e)})
-    return {"ok": True, "data": {**_skill_to_dict(skill), "content": skill.content}, "error": None}
+    """更新技能内容(部分更新)
+
+    Phase 3-C: 若请求包含 enabled 字段, 仅更新 DB 中的 enabled 状态并发布事件,
+    不触发 loader 的 markdown 重写 (避免 enabled toggle 误覆盖 prompt_template)。
+    其他字段仍走 loader.update_skill 持久化到 markdown 文件。
+    """
+    # 1. 处理 enabled 持久化 (独立于 markdown 内容更新)
+    if req.enabled is not None:
+        await _persist_skill_enabled(name, req.enabled)
+        await _publish_skill_toggled(name, req.enabled)
+        # 同步更新 loader 内存缓存, 保证后续 load_skill 立即反映新状态
+        cached = _loader._cache.get(name)
+        if cached is not None:
+            cached.enabled = req.enabled
+
+    # 2. 处理 markdown 内容更新 (description/category/prompt_template/tags)
+    # 若除 enabled 外还有其他字段需要更新, 走 loader
+    has_content_update = any(
+        v is not None
+        for v in (req.description, req.category, req.prompt_template, req.tags)
+    )
+    if has_content_update:
+        try:
+            skill = await _loader.update_skill(
+                name=name,
+                description=req.description,
+                category=req.category,
+                prompt_template=req.prompt_template,
+                tags=req.tags,
+            )
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": str(e)})
+    else:
+        # 仅 enabled 更新: 重新加载当前技能返回
+        skill = await _loader.load_skill(name)
+        if not skill:
+            raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": "Skill not found"})
+
+    data = {**_skill_to_dict(skill), "content": skill.content}
+    # 合并 DB enabled (优先 DB 权威值)
+    if req.enabled is not None:
+        data["enabled"] = req.enabled
+    else:
+        enabled_map = await _load_enabled_map()
+        if name in enabled_map:
+            data["enabled"] = enabled_map[name]
+    return {"ok": True, "data": data, "error": None}
 
 
 @router.delete("/{name}", summary="删除技能", description="删除指定名称的技能(仅 custom 可删除)")

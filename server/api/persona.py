@@ -1,13 +1,43 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.engine import get_session
+from ..db.orm import Persona, PersonaRelation
 import random
 
 from ..services import active_state, persona_service
-from .models import PersonaCreate, PersonaGenerateRequest, PersonaUpdate
+from ..services.role_matcher import get_role_matcher
+from .models import (
+    PersonaCreate,
+    PersonaGenerateRequest,
+    PersonaRelationCreate,
+    PersonaUpdate,
+)
 
 router = APIRouter(prefix="/persona", tags=["persona"])
+
+
+def _relation_to_dict(r: PersonaRelation, target: Persona | None = None) -> dict:
+    """序列化关联关系, 可选附带 target persona 信息"""
+    out = {
+        "id": r.id,
+        "source_id": r.source_id,
+        "target_id": r.target_id,
+        "relation_type": r.relation_type,
+        "strength": r.strength,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+    if target is not None:
+        out["target"] = {
+            "id": target.id,
+            "name": target.name,
+            "avatar": target.avatar,
+            "role": target.role,
+            "goal": target.goal,
+            "backstory": target.backstory,
+        }
+    return out
 
 
 @router.get("", summary="列出 Persona", description="列出所有 Persona 配置")
@@ -73,7 +103,7 @@ async def get_persona(persona_id: int, session: AsyncSession = Depends(get_sessi
     return {"ok": True, "data": data, "error": None}
 
 
-@router.put("/{persona_id}", summary="更新 Persona", description="更新指定 Persona 的字段(部分更新)")
+@router.put("/{persona_id}", summary="更新 Persona", description="更新指定 Persona 的字段(部分更新,支持 role/goal/backstory/allowed_paths)")
 async def update_persona(
     persona_id: int, req: PersonaUpdate, session: AsyncSession = Depends(get_session)
 ):
@@ -102,3 +132,108 @@ async def activate_persona(persona_id: int, session: AsyncSession = Depends(get_
         raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": "Persona not found"})
     active_state.set_active_persona_id(persona_id)
     return {"ok": True, "data": {"active_persona_id": persona_id}, "error": None}
+
+
+# =========================================================================
+# v2.3.0 A3 — 角色关联管理 (PersonaRelation CRUD + role_matcher 候选)
+# =========================================================================
+
+
+@router.get(
+    "/{persona_id}/relations",
+    summary="获取角色关联列表",
+    description="列出指定角色的所有关联关系 (complement/assist/delegate),附带目标角色信息",
+)
+async def list_relations(persona_id: int, session: AsyncSession = Depends(get_session)):
+    persona = await session.get(Persona, persona_id)
+    if persona is None:
+        raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": "Persona not found"})
+    # 查所有以 persona_id 为 source 的关联 (单向关系,只列出主动发起的关联)
+    result = await session.execute(
+        select(PersonaRelation).where(PersonaRelation.source_id == persona_id)
+    )
+    relations = list(result.scalars().all())
+    # 批量加载 target persona, 避免 N+1
+    target_ids = [r.target_id for r in relations]
+    targets_map: dict[int, Persona] = {}
+    if target_ids:
+        tgt_result = await session.execute(
+            select(Persona).where(Persona.id.in_(target_ids))
+        )
+        for p in tgt_result.scalars().all():
+            targets_map[p.id] = p
+    data = [_relation_to_dict(r, targets_map.get(r.target_id)) for r in relations]
+    return {"ok": True, "data": data, "error": None}
+
+
+@router.post(
+    "/{persona_id}/relations",
+    summary="创建角色关联",
+    description="为指定角色创建一条关联关系 (target_id + relation_type + strength)",
+)
+async def create_relation(
+    persona_id: int,
+    req: PersonaRelationCreate,
+    session: AsyncSession = Depends(get_session),
+):
+    # 校验源角色存在
+    source = await session.get(Persona, persona_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": "Source persona not found"})
+    # 校验目标角色存在
+    target = await session.get(Persona, req.target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": "Target persona not found"})
+    # 校验 relation_type
+    if req.relation_type not in ("complement", "assist", "delegate"):
+        raise HTTPException(
+            status_code=400,
+            detail={"ok": False, "data": None, "error": "relation_type must be one of: complement/assist/delegate"},
+        )
+    # 禁止自关联
+    if persona_id == req.target_id:
+        raise HTTPException(status_code=400, detail={"ok": False, "data": None, "error": "Cannot create relation to self"})
+    # 校验 strength 范围
+    strength = max(0.0, min(1.0, float(req.strength)))
+    relation = PersonaRelation(
+        source_id=persona_id,
+        target_id=req.target_id,
+        relation_type=req.relation_type,
+        strength=strength,
+    )
+    session.add(relation)
+    await session.commit()
+    await session.refresh(relation)
+    return {"ok": True, "data": _relation_to_dict(relation, target), "error": None}
+
+
+@router.delete(
+    "/relations/{relation_id}",
+    summary="删除角色关联",
+    description="根据关联 ID 删除指定的角色关联关系",
+)
+async def delete_relation(relation_id: int, session: AsyncSession = Depends(get_session)):
+    relation = await session.get(PersonaRelation, relation_id)
+    if relation is None:
+        raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": "Relation not found"})
+    await session.delete(relation)
+    await session.commit()
+    return {"ok": True, "data": {"id": relation_id, "deleted": True}, "error": None}
+
+
+@router.get(
+    "/{persona_id}/candidates",
+    summary="获取自动匹配的候选关联角色",
+    description="调用 role_matcher 按三元组 (role/goal/backstory) 相似度自动匹配候选角色,返回 top-N",
+)
+async def get_candidates(
+    persona_id: int,
+    session: AsyncSession = Depends(get_session),
+    limit: int = Query(5, ge=1, le=20, description="返回候选数量上限"),
+):
+    persona = await session.get(Persona, persona_id)
+    if persona is None:
+        raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": "Persona not found"})
+    matcher = get_role_matcher()
+    data = await matcher.find_candidates(session, persona_id, limit=limit)
+    return {"ok": True, "data": data, "error": None}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks'
-import { apiGet, apiPost } from '../lib/api'
+import { apiGet, apiPost, apiStream } from '../lib/api'
 
 // ===== 工具函数 =====
 
@@ -82,6 +82,8 @@ export default function SwarmProgress() {
   const [creating, setCreating] = useState(false)
 
   const pollRef = useRef<number | null>(null)
+  // SSE 流期间节流刷新详情的 timer (worker_done 频繁触发时避免风暴)
+  const detailRefreshRef = useRef<number | null>(null)
 
   // 加载蜂群任务列表
   const loadSwarms = async () => {
@@ -160,6 +162,47 @@ export default function SwarmProgress() {
     }
   }
 
+  // 节流刷新蜂群详情 (worker_done 频繁触发时避免请求风暴)
+  const scheduleDetailRefresh = (id: number) => {
+    if (detailRefreshRef.current !== null) {
+      clearTimeout(detailRefreshRef.current)
+    }
+    detailRefreshRef.current = window.setTimeout(() => {
+      loadSwarmDetail(id)
+      detailRefreshRef.current = null
+    }, 400)
+  }
+
+  // 处理蜂群执行 SSE 事件,更新本地状态
+  const handleSwarmSseEvent = (swarmId: number, evt: any) => {
+    const t = evt?.type
+    if (t === 'decomposed') {
+      // 任务已分解,更新 subtasks 和状态
+      setSwarms(prev => prev.map(s => (s.id === swarmId
+        ? { ...s, status: 'running', subtasks: evt.subtasks || [] }
+        : s)))
+    } else if (t === 'worker_done' || t === 'worker_failed') {
+      // worker 完成/失败,节流刷新详情以获得最新 workers 状态
+      scheduleDetailRefresh(swarmId)
+    } else if (t === 'verifying' || t === 'verified') {
+      // 验证阶段,标记为运行中
+      setSwarms(prev => prev.map(s => (s.id === swarmId
+        ? { ...s, status: 'running' }
+        : s)))
+    } else if (t === 'completed') {
+      // 整体完成,设置结果和进度
+      setSwarms(prev => prev.map(s => (s.id === swarmId
+        ? { ...s, status: 'completed', result: evt.result, progress: 100 }
+        : s)))
+      scheduleDetailRefresh(swarmId)
+    } else if (t === 'error') {
+      setSwarms(prev => prev.map(s => (s.id === swarmId
+        ? { ...s, status: 'failed' }
+        : s)))
+      setError(evt.error || '蜂群执行失败')
+    }
+  }
+
   // 创建蜂群任务
   const handleCreate = async () => {
     if (!title.trim() || !desc.trim() || personaId === '') {
@@ -181,6 +224,17 @@ export default function SwarmProgress() {
       // 自动展开新创建的任务
       if (created?.id) {
         setExpanded(prev => new Set(prev).add(created.id))
+        // 自动触发蜂群执行 (SSE 流),后台运行不阻塞 UI
+        apiStream(`/swarm/${created.id}/run`, {}, (data) => {
+          try {
+            const evt = JSON.parse(data)
+            handleSwarmSseEvent(created.id, evt)
+          } catch {
+            // 忽略 SSE 数据解析错误
+          }
+        }).catch(e => {
+          setError(e?.message || '蜂群执行流失败')
+        })
       }
     } catch (e: any) {
       setError(e?.message || '创建蜂群任务失败')

@@ -12,6 +12,7 @@ pytest>=8.0.0
 pytest-asyncio>=0.24.0
 python-dotenv>=1.0.0
 pywebview>=6.0.0
+python-multipart>=0.0.9
 
 # KB + CU 新增依赖
 chromadb>=0.5.0,<1.0.0  # v2.2.2: PYSEC-2026-311 影响 1.0.0+,限制 <1.0.0

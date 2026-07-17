@@ -1,8 +1,11 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..db.engine import async_session
+from ..db.orm import Conversation, Message
 from ..services.wiki_service import wiki_service
 from .models import WikiCreate, WikiUpdate, WikiCompileRequest
+from sqlalchemy import select, func
 
 router = APIRouter(prefix="/wiki", tags=["wiki"])
 
@@ -13,6 +16,40 @@ class WikiSearchRequest(BaseModel):
     query: str
     persona_id: int | None = None
     limit: int = 10
+
+
+@router.get("/conversations", summary="列出可编译对话", description="列出所有可选对话 (用于 Wiki 编译选择器), 按更新时间倒序返回, 含消息数")
+async def list_conversations_for_wiki():
+    """v2.3.0 Phase 3-D: 列出可选对话 (用于 Wiki 编译选择器)
+
+    返回 [{id, title, persona_id, created_at, updated_at, message_count}]
+    必须在 /{wiki_id} 之前注册, 避免路径冲突。
+    """
+    async with async_session() as session:
+        # 聚合消息数, 一次查询
+        stmt = (
+            select(
+                Conversation,
+                func.count(Message.id).label("message_count"),
+            )
+            .outerjoin(Message, Message.conversation_id == Conversation.id)
+            .group_by(Conversation.id)
+            .order_by(Conversation.updated_at.desc())
+        )
+        rows = (await session.execute(stmt)).all()
+
+    data = [
+            {
+                "id": conv.id,
+                "title": conv.title or f"对话 #{conv.id}",
+                "persona_id": conv.persona_id,
+                "created_at": conv.created_at.isoformat() if conv.created_at else None,
+                "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+                "message_count": int(msg_count or 0),
+            }
+            for conv, msg_count in rows
+        ]
+    return {"ok": True, "data": data, "error": None}
 
 
 @router.get("", summary="列出 Wiki", description="列出 Wiki 页面 (支持 persona_id/tag/status 过滤 + 分页)")
@@ -48,11 +85,20 @@ async def create_wiki(req: WikiCreate):
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/compile", summary="编译 Wiki", description="从对话编译 Wiki 笔记 (必须在 /{wiki_id} 之前注册)")
+@router.post("/compile", summary="编译 Wiki", description="从对话编译 Wiki 笔记 (必须在 /{wiki_id} 之前注册; v2.3.0 支持多对话)")
 async def compile_wiki(req: WikiCompileRequest):
-    """从对话编译 Wiki 笔记 (必须在 /{wiki_id} 之前注册)"""
+    """从对话编译 Wiki 笔记 (必须在 /{wiki_id} 之前注册)
+
+    v2.3.0 Phase 3-D: 支持 conversation_ids (多对话) 与 conversation_id (单对话, 向后兼容)。
+    """
+    if not req.conversation_ids and req.conversation_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"ok": False, "data": None, "error": "conversation_id 或 conversation_ids 至少提供一个"},
+        )
     result = await wiki_service.compile_from_conversation(
         conversation_id=req.conversation_id,
+        conversation_ids=req.conversation_ids,
         persona_id=req.persona_id,
         title=req.title,
         tags=req.tags,

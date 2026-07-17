@@ -224,6 +224,74 @@ class SchedulerService:
         self._append_history(job_id, result)
         return {"job_id": job_id, "action": action, **result}
 
+    # ===== v2.3.0 Phase 3-D: 任务生命周期管理 (pause/resume/cancel) =====
+
+    async def pause_job(self, job_id: int) -> dict | None:
+        """暂停任务: set enabled=False + 从 APScheduler 移除 (不再自动触发)"""
+        async with async_session() as session:
+            job = await session.get(SchedulerJob, job_id)
+            if job is None:
+                return None
+            job.enabled = False
+            await session.commit()
+            await session.refresh(job)
+            data = _job_to_dict(job)
+
+        if _APSCHEDULER_AVAILABLE and self._scheduler is not None:
+            try:
+                self._scheduler.remove_job(self._aps_job_id(job_id))
+            except Exception:  # noqa: BLE001
+                pass
+        return data
+
+    async def resume_job(self, job_id: int) -> dict | None:
+        """恢复任务: set enabled=True + 重新注册到 APScheduler"""
+        async with async_session() as session:
+            job = await session.get(SchedulerJob, job_id)
+            if job is None:
+                return None
+            job.enabled = True
+            await session.commit()
+            await session.refresh(job)
+            data = _job_to_dict(job)
+            cron_expr = job.cron_expr
+            action = job.action or {}
+
+        # 重新注册到 APScheduler (无论 cron 是否变更, 恢复时都重新注册)
+        if _APSCHEDULER_AVAILABLE and self._scheduler is not None:
+            try:
+                self._scheduler.remove_job(self._aps_job_id(job_id))
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                cron_kwargs = self._parse_cron(cron_expr)
+                self._register_apscheduler(job_id, cron_kwargs, action)
+            except ValueError:
+                # 无效 cron 表达式, 仅启用 DB 标记, 不注册
+                pass
+        return data
+
+    async def cancel_job(self, job_id: int) -> dict | None:
+        """取消运行中任务: 暂停 (enabled=False) + 从 APScheduler 移除 + 记录取消历史
+
+        注: APScheduler 不持有正在执行的 coroutine 句柄, 无法硬中断已派发的执行;
+        cancel 会确保任务不再被后续触发, 并在历史中标记 cancelled。
+        """
+        data = await self.pause_job(job_id)
+        if data is None:
+            return None
+        self._append_history(
+            job_id,
+            {
+                "success": True,
+                "result": {"cancelled": True},
+                "error": None,
+                "duration_ms": 0,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
+        return data
+
     # ===== 任务执行历史 =====
 
     def get_job_history(self, job_id: int, limit: int = 20) -> list[dict]:

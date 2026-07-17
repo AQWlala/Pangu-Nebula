@@ -27,6 +27,12 @@ class Persona(Base):
     # v2.2.1 F7: computer_* 工具独立权限字段 (与 browser_* 解耦,默认关闭,安全优先)
     # 架构师 + 业务专家双票通过新增字段
     computer_use_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # v2.3.0 A3: 角色三元组 (借鉴 CrewAI) — 用于 role_matcher 自动匹配/关联/组队
+    role: Mapped[str | None] = mapped_column(String(255))      # 角色定位,如 "架构师"/"编码者"/"评审"
+    goal: Mapped[str | None] = mapped_column(Text)             # 角色目标
+    backstory: Mapped[str | None] = mapped_column(Text)        # 角色背景故事
+    # v2.3.0 A3: allowed_paths 白名单 (PathGuard 用,逗号分隔)
+    allowed_paths: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now(), onupdate=datetime.utcnow)
 
@@ -312,4 +318,93 @@ class TaskRecord(Base):
     success: Mapped[bool] = mapped_column(Boolean, default=False)
     iterations: Mapped[int] = mapped_column(Integer, default=1)
     persona_id: Mapped[int | None] = mapped_column(ForeignKey("personas.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+# =========================================================================
+# v2.3.0 Phase 0 — 新增表 (跨模块联动 + 角色协作 + 记忆版本)
+# =========================================================================
+
+
+class PersonaRelation(Base):
+    """v2.3.0 A3 — 角色关联关系表 (借鉴 OpenAkita AgentInstancePool)
+
+    记录角色间的协作关系:
+    - complement: 互补 (架构师 + 编码者)
+    - assist:     协助 (评审协助编码者)
+    - delegate:   委派 (主控委派给分身)
+
+    strength: 0.0-1.0,role_matcher 计算的相似度/互补度
+    """
+
+    __tablename__ = "persona_relations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"), nullable=False)
+    target_id: Mapped[int] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"), nullable=False)
+    relation_type: Mapped[str] = mapped_column(String(32), nullable=False)  # complement/assist/delegate
+    strength: Mapped[float] = mapped_column(Float, default=0.5)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+class WorkerPool(Base):
+    """v2.3.0 A3 — 角色 Worker 池 (借鉴 OpenAkita AgentInstancePool)
+
+    一个 persona 可注册到多个 pool,蜂群任务从 pool 中调度 worker。
+    status: idle/busy/offline
+    """
+
+    __tablename__ = "worker_pools"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    persona_id: Mapped[int] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"), nullable=False)
+    pool_id: Mapped[str] = mapped_column(String(64), nullable=False)  # 逻辑池名,如 "default"/"coding"/"review"
+    status: Mapped[str] = mapped_column(String(20), default="idle")   # idle/busy/offline
+    current_task_id: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now(), onupdate=datetime.utcnow)
+
+
+class MemoryEvent(Base):
+    """v2.3.0 B2 — 记忆事件流持久化 (EventBus business_sink 落表)
+
+    记录所有 memory.* 事件,用于:
+    - 记忆图谱增量回放
+    - 审计追踪
+    - 时间旅行 (回溯某时刻的记忆状态)
+    """
+
+    __tablename__ = "memory_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)          # EventBus seq
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)  # memory.l1.written 等
+    persona_id: Mapped[int | None] = mapped_column(ForeignKey("personas.id", ondelete="SET NULL"))
+    memory_id: Mapped[int | None] = mapped_column(ForeignKey("memories.id", ondelete="SET NULL"))
+    action: Mapped[str | None] = mapped_column(String(32))             # create/update/delete/contradict/forget
+    payload: Mapped[dict | None] = mapped_column(JSON)
+    source: Mapped[str | None] = mapped_column(String(128))            # 发布者
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+class MemorySnapshot(Base):
+    """v2.3.0 B2 — 记忆版本快照 (借鉴 GraphRAG 版本快照)
+
+    大节拍 (24h) 创建快照,用于:
+    - 回滚到历史版本
+    - 对比记忆演化
+    - 灾难恢复
+    """
+
+    __tablename__ = "memory_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    persona_id: Mapped[int | None] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"))
+    snapshot_type: Mapped[str] = mapped_column(String(32), default="daily")  # daily/checkpoint/manual
+    # 快照内容 (JSON: 所有记忆节点的序列化)
+    snapshot_data: Mapped[dict | None] = mapped_column(JSON)
+    # 记忆节点数 (快速统计)
+    node_count: Mapped[int] = mapped_column(Integer, default=0)
+    # 触发原因
+    trigger: Mapped[str] = mapped_column(String(64), default="scheduled")  # scheduled/manual/checkpoint
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())

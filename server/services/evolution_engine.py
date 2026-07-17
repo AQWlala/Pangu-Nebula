@@ -485,17 +485,30 @@ class EvolutionEngine:
         return memory
 
     def _log_to_dict(self, log: EvolutionLog) -> dict:
-        """ORM 转 dict"""
+        """ORM 转 dict
+
+        v2.3.0 Phase 3-B: 补全前端期望字段 (title / description / detail / created_at),
+        同时保留审计字段 (phase / status / trigger / before_state / after_state / details)。
+        前端 EvolutionPage (app.tsx) 读取 log.title / log.description / log.detail / log.created_at。
+        """
+        phase_map = {"extract": "提取", "compile": "编译", "reflect": "反思", "soul": "灵魂"}
+        status_map = {"pending": "待处理", "running": "进行中", "completed": "已完成", "failed": "失败"}
         return {
             "id": log.id,
             "persona_id": log.persona_id,
+            # 前端期望字段
+            "title": f"{phase_map.get(log.phase, log.phase)} - {status_map.get(log.status, log.status)}",
+            "event": log.phase,
+            "description": f"触发: {log.trigger}, 阶段: {log.phase}",
+            "detail": log.details,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+            # 审计增强字段 (保留)
             "phase": log.phase,
             "status": log.status,
             "trigger": log.trigger,
             "before_state": log.before_state,
             "after_state": log.after_state,
             "details": log.details,
-            "created_at": log.created_at.isoformat() if log.created_at else None,
         }
 
     def _persona_to_dict(self, p: Persona) -> dict:

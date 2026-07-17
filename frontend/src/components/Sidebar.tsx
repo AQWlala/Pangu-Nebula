@@ -48,8 +48,9 @@ const NAV_GROUPS: NavGroup[] = [
     title: "工具",
     items: [
       { id: "dashboard", label: "仪表盘", icon: "📊" },
+      { id: "autowork", label: "自动化任务", icon: "🤖" },
+      { id: "computer-use", label: "电脑操控", icon: "🖥" },
       { id: "settings", label: "设置", icon: "⚙️" },
-      { id: "computer-use", label: "自动化", icon: "🤖" },
     ],
   },
   {

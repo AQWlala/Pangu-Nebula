@@ -43,6 +43,9 @@ async def get_scheduler():
                 "PUT /scheduler/jobs/{job_id}",
                 "DELETE /scheduler/jobs/{job_id}",
                 "POST /scheduler/jobs/{job_id}/trigger",
+                "POST /scheduler/jobs/{job_id}/cancel",
+                "POST /scheduler/jobs/{job_id}/pause",
+                "POST /scheduler/jobs/{job_id}/resume",
                 "GET /scheduler/jobs/{job_id}/history",
             ],
         },
@@ -194,6 +197,60 @@ async def trigger_job(job_id: int):
     """手动触发任务(立即执行一次)"""
     try:
         data = await scheduler_service.trigger_job(job_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={"ok": False, "data": None, "error": f"{type(exc).__name__}: {exc}"},
+        )
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"ok": False, "data": None, "error": f"Job {job_id} not found"},
+        )
+    return {"ok": True, "data": data, "error": None}
+
+
+@router.post("/jobs/{job_id}/cancel", summary="取消运行中任务", description="停止运行中的任务 (禁用 + 从调度器移除 + 记录取消历史)")
+async def cancel_job(job_id: int):
+    """v2.3.0 Phase 3-D: 取消运行中任务"""
+    try:
+        data = await scheduler_service.cancel_job(job_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={"ok": False, "data": None, "error": f"{type(exc).__name__}: {exc}"},
+        )
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"ok": False, "data": None, "error": f"Job {job_id} not found"},
+        )
+    return {"ok": True, "data": data, "error": None}
+
+
+@router.post("/jobs/{job_id}/pause", summary="暂停任务", description="暂停定时任务 (禁用 + 从调度器移除, 不再自动触发)")
+async def pause_job(job_id: int):
+    """v2.3.0 Phase 3-D: 暂停任务"""
+    try:
+        data = await scheduler_service.pause_job(job_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={"ok": False, "data": None, "error": f"{type(exc).__name__}: {exc}"},
+        )
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"ok": False, "data": None, "error": f"Job {job_id} not found"},
+        )
+    return {"ok": True, "data": data, "error": None}
+
+
+@router.post("/jobs/{job_id}/resume", summary="恢复任务", description="恢复已暂停的定时任务 (启用 + 重新注册到调度器)")
+async def resume_job(job_id: int):
+    """v2.3.0 Phase 3-D: 恢复任务"""
+    try:
+        data = await scheduler_service.resume_job(job_id)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=500,

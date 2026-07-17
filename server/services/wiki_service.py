@@ -136,33 +136,59 @@ class WikiService:
 
     async def compile_from_conversation(
         self,
-        conversation_id: int,
+        conversation_id: int | None = None,
         persona_id: int | None = None,
         title: str | None = None,
         tags: list[str] | None = None,
+        conversation_ids: list[int] | None = None,
     ) -> dict:
         """从对话编译 Wiki 笔记:
         读取对话所有 Message → 调用 LLM 编译为 HTML → 提取 plain_text/links → 同步 backlinks
         返回 {"ok": bool, "data": dict|None, "error": str|None}
+
+        v2.3.0 Phase 3-D: 支持多对话编译。
+        - conversation_ids 优先; 为空则回退到单个 conversation_id
+        - 多对话时按顺序拼接消息, persona 取首个对话的 persona_id (或入参)
+        - source_conversation_id 记录首个对话 id
         """
-        # 1. 读取对话、消息、persona
+        # 1. 确定要编译的对话列表
+        if conversation_ids:
+            conv_id_list: list[int] = [int(cid) for cid in conversation_ids if cid]
+        elif conversation_id is not None:
+            conv_id_list = [int(conversation_id)]
+        else:
+            return {"ok": False, "data": None, "error": "No conversation_id or conversation_ids provided"}
+
+        if not conv_id_list:
+            return {"ok": False, "data": None, "error": "Empty conversation_ids list"}
+
+        # 2. 读取对话、消息、persona
         async with async_session() as session:
-            conversation = await session.get(Conversation, conversation_id)
-            if conversation is None:
-                return {"ok": False, "data": None, "error": f"Conversation {conversation_id} not found"}
+            conversations: list[Conversation] = []
+            for cid in conv_id_list:
+                conv = await session.get(Conversation, cid)
+                if conv is None:
+                    return {"ok": False, "data": None, "error": f"Conversation {cid} not found"}
+                conversations.append(conv)
 
-            result = await session.execute(
-                select(Message)
-                .where(Message.conversation_id == conversation_id)
-                .order_by(Message.created_at)
-            )
-            messages = list(result.scalars().all())
+            messages: list[Message] = []
+            for cid in conv_id_list:
+                result = await session.execute(
+                    select(Message)
+                    .where(Message.conversation_id == cid)
+                    .order_by(Message.created_at)
+                )
+                messages.extend(result.scalars().all())
 
-            # persona 优先用入参,否则用对话的 persona_id
-            effective_persona_id = persona_id if persona_id is not None else conversation.persona_id
+            # persona 优先用入参,否则用首个对话的 persona_id
+            first_conv = conversations[0]
+            effective_persona_id = persona_id if persona_id is not None else first_conv.persona_id
             persona: Persona | None = None
             if effective_persona_id is not None:
                 persona = await session.get(Persona, effective_persona_id)
+
+            # source_conversation_id 记录首个对话 (向后兼容字段类型)
+            source_conversation_id = int(first_conv.id)
 
         if not messages:
             return {"ok": False, "data": None, "error": "Conversation has no messages to compile"}
@@ -176,7 +202,18 @@ class WikiService:
             return {"ok": False, "data": None, "error": f"Provider '{model_provider}' not registered"}
 
         # 3. 构造对话文本并调用 LLM
-        dialogue_lines = [f"[{m.role}] {m.content}" for m in messages]
+        # v2.3.0 Phase 3-D: 多对话时为每段对话加标题分隔, 便于 LLM 理解上下文边界
+        dialogue_lines: list[str] = []
+        if len(conversations) > 1:
+            for conv, cid in zip(conversations, conv_id_list):
+                dialogue_lines.append(f"=== 对话: {conv.title or f'#{cid}'} ===")
+                conv_msgs = [m for m in messages if m.conversation_id == cid]
+                for m in conv_msgs:
+                    dialogue_lines.append(f"[{m.role}] {m.content}")
+                dialogue_lines.append("")
+        else:
+            for m in messages:
+                dialogue_lines.append(f"[{m.role}] {m.content}")
         dialogue = "\n\n".join(dialogue_lines)
         user_prompt = self._COMPILE_USER_PROMPT_TEMPLATE.format(dialogue=dialogue)
 
@@ -203,8 +240,8 @@ class WikiService:
         if not html_content:
             return {"ok": False, "data": None, "error": "LLM returned empty content"}
 
-        # 4. 生成标题 (若未提供则用对话标题或回退默认)
-        wiki_title = title or (conversation.title or f"Wiki from conversation #{conversation_id}")
+        # 4. 生成标题 (若未提供则用首个对话标题或回退默认)
+        wiki_title = title or (first_conv.title or f"Wiki from conversation #{source_conversation_id}")
 
         # 5. 提取 plain_text 与 links
         plain_text = self._extract_plain_text(html_content)
@@ -222,7 +259,7 @@ class WikiService:
                 links=links,
                 backlinks=[],
                 status="compiled",
-                source_conversation_id=conversation_id,
+                source_conversation_id=source_conversation_id,
             )
             session.add(wiki_page)
             await session.commit()

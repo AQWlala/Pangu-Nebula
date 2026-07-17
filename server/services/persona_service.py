@@ -19,6 +19,11 @@ def _persona_to_dict(p: Persona) -> dict:
         "max_tokens": p.max_tokens,
         "model_provider": p.model_provider,
         "model_name": p.model_name,
+        # v2.3.0 A3: 角色三元组 + allowed_paths
+        "role": p.role,
+        "goal": p.goal,
+        "backstory": p.backstory,
+        "allowed_paths": p.allowed_paths,
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }

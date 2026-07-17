@@ -3,6 +3,8 @@
 分离自 api/models.py,避免修改现有 models.py。
 """
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -13,6 +15,10 @@ class McpConnectRequest(BaseModel):
     command: str
     args: list[str] = []
     env: dict = {}
+    # v2.3.0 Phase 3-C: transport 字段 (前端已发送, 后端之前静默丢弃)
+    # stdio: 子进程 + stdin/stdout (默认, 当前 MCPClient 实现)
+    # sse:  HTTP+SSE 远程服务器 (占位, 后续扩展)
+    transport: Literal["stdio", "sse"] = "stdio"
 
 
 class McpCallToolRequest(BaseModel):

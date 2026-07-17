@@ -24,6 +24,10 @@ class StreamChunk(BaseModel):
     # v2.2.0: OpenAI 风格的工具调用增量 (delta.tool_calls)
     tool_calls: list[dict] | None = None
     raw: dict[str, Any] | None = None
+    # v2.3.0 Phase 3-A1: 推理过程文本 (DeepSeek reasoning_content / Anthropic thinking / Gemini thought)
+    reasoning: str = ""
+    # v2.3.0 Phase 3-A1: 推理阶段标识 (如 "analyzing"/"planning"),无则为 None
+    reasoning_phase: str | None = None
 
 
 class ProtocolBase(BaseProvider):

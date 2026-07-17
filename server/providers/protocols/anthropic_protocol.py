@@ -110,11 +110,50 @@ class AnthropicProtocol(ProtocolBase):
             obj = json.loads(data)
         except json.JSONDecodeError:
             return None
-        if obj.get("type") == "content_block_delta":
+        event_type = obj.get("type")
+
+        # v2.3.0 Phase 3-A1: 块状态跟踪 — content_block_start
+        # 标记新内容块开始,区分 text/thinking 块类型 (extended thinking)
+        if event_type == "content_block_start":
+            block = obj.get("content_block") or {}
+            block_type = block.get("type")
+            if block_type == "thinking":
+                # thinking 块开始,reasoning_phase 标识为 thinking
+                return StreamChunk(
+                    text="",
+                    reasoning="",
+                    reasoning_phase="thinking",
+                    raw=obj,
+                )
+            # text 块等其他类型,无内容(实际文本在后续 delta 中),返回 None 避免无意义 yield
+            return None
+
+        # v2.3.0 Phase 3-A1: content_block_delta — 处理 thinking_delta / signature_delta / text_delta
+        if event_type == "content_block_delta":
             delta = obj.get("delta") or {}
-            if delta.get("type") == "text_delta":
+            delta_type = delta.get("type")
+            if delta_type == "text_delta":
                 return StreamChunk(text=delta.get("text", "") or "", raw=obj)
-        if obj.get("type") == "message_stop":
+            if delta_type == "thinking_delta":
+                # Claude extended thinking — 推理过程文本
+                return StreamChunk(
+                    text="",
+                    reasoning=delta.get("thinking", "") or "",
+                    reasoning_phase="thinking",
+                    raw=obj,
+                )
+            if delta_type == "signature_delta":
+                # thinking 块的签名增量 (用于红acted 思维验证),不产出文本但保留 raw
+                return StreamChunk(text="", reasoning="", reasoning_phase="thinking", raw=obj)
+            # 其他 delta 类型 (input_json_delta 等) 不产出文本
+            return None
+
+        # v2.3.0 Phase 3-A1: content_block_stop — 块结束,产出空 chunk 标记
+        # 用于前端区分 reasoning 块结束 / text 块结束
+        if event_type == "content_block_stop":
+            return StreamChunk(text="", reasoning="", raw=obj)
+
+        if event_type == "message_stop":
             return StreamChunk(text="", finish_reason="stop", raw=obj)
         return None
 
@@ -182,7 +221,12 @@ class AnthropicProtocol(ProtocolBase):
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     chunk = self._parse_sse_chunk(line)
-                    if chunk is not None and chunk.text:
+                    # v2.3.0 Phase 3-A1: 修复 L185 过滤 bug
+                    # 原逻辑 `if chunk is not None and chunk.text` 会丢弃 finish 块
+                    # (空 text 但有 finish_reason)。改为: yield 所有非 None chunk,
+                    # 即使 text 为空 (只要有 finish_reason / reasoning / reasoning_phase / raw 元数据)。
+                    # content_block_stop 等纯标记块也透传,供前端区分块边界。
+                    if chunk is not None:
                         yield chunk
 
     # ---- 嵌入 ----

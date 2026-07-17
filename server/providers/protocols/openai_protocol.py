@@ -122,10 +122,18 @@ class OpenAIProtocol(ProtocolBase):
         delta = choice.get("delta") or {}
         # v2.2.0: 解析工具调用增量 (delta.tool_calls)
         tool_calls = delta.get("tool_calls") or None
+        # v2.3.0 Phase 3-A1: 推理过程解析
+        # - DeepSeek / 通用推理模型用 delta.reasoning_content
+        # - OpenAI o1 / 部分 provider 用 delta.reasoning
+        reasoning_text = delta.get("reasoning_content") or delta.get("reasoning") or ""
+        # 推理阶段标识 (部分 provider 在 reasoning 块上携带 phase 字段)
+        reasoning_phase = delta.get("reasoning_phase")
         return StreamChunk(
             text=delta.get("content", "") or "",
             finish_reason=choice.get("finish_reason"),
             tool_calls=tool_calls,
+            reasoning=reasoning_text,
+            reasoning_phase=reasoning_phase,
             raw=obj,
         )
 
@@ -201,7 +209,13 @@ class OpenAIProtocol(ProtocolBase):
                     if chunk is None:
                         continue
                     # v2.2.0: 产出文本块 / 工具调用块 / 结束块 (任一非空)
-                    if chunk.text or chunk.tool_calls or chunk.finish_reason:
+                    # v2.3.0 Phase 3-A1: 新增 reasoning 块 (推理过程)
+                    if (
+                        chunk.text
+                        or chunk.tool_calls
+                        or chunk.finish_reason
+                        or chunk.reasoning
+                    ):
                         yield chunk
 
     # ---- 嵌入 ----

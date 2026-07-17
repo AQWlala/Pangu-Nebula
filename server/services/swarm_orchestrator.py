@@ -7,6 +7,7 @@ from typing import AsyncIterator
 
 from sqlalchemy import select
 
+from ..core.event_bus import get_event_bus
 from ..db.engine import async_session
 from ..db.orm import Persona
 from ..db.swarm_models import Swarm, SwarmWorker
@@ -72,6 +73,7 @@ class SwarmOrchestrator:
             await session.commit()
 
     async def run_swarm(self, swarm_id: int) -> AsyncIterator[dict]:
+        bus = get_event_bus()
         try:
             async with self.session_factory() as session:
                 swarm = await session.get(Swarm, swarm_id)
@@ -86,11 +88,31 @@ class SwarmOrchestrator:
                 swarm.status = "decomposing"
                 await session.commit()
 
+            # 发布 swarm.started 事件 (EventBus, 异常不阻断主流程)
+            try:
+                await bus.publish(
+                    "swarm.started",
+                    {"swarm_id": swarm_id, "persona_id": persona.id, "goal": goal},
+                    source="swarm_orchestrator",
+                )
+            except Exception:
+                pass
+
             subtasks = await self.decompose_task(swarm_id, goal, persona)
             if not subtasks:
                 raise RuntimeError("Failed to decompose task into subtasks")
 
             yield {"type": "decomposed", "subtasks": subtasks}
+
+            # 发布 dag.node.started 事件 (decompose 阶段完成)
+            try:
+                await bus.publish(
+                    "dag.node.started",
+                    {"dag_id": f"dag-swarm-{swarm_id}", "phase": "decomposed", "subtasks": subtasks},
+                    source="swarm_orchestrator",
+                )
+            except Exception:
+                pass
 
             await self.dispatch_workers(swarm_id, subtasks)
 
@@ -115,7 +137,23 @@ class SwarmOrchestrator:
             ]
 
             for future in asyncio.as_completed(tasks):
-                yield await future
+                evt = await future
+                yield evt
+                # 发布 dag.node.completed 事件 (worker 完成)
+                if evt.get("type") == "worker_done":
+                    try:
+                        await bus.publish(
+                            "dag.node.completed",
+                            {
+                                "dag_id": f"dag-swarm-{swarm_id}",
+                                "node_id": f"worker-{evt.get('subtask_id')}-{evt.get('worker_index')}",
+                                "subtask_id": evt.get("subtask_id"),
+                                "worker_index": evt.get("worker_index"),
+                            },
+                            source="swarm_orchestrator",
+                        )
+                    except Exception:
+                        pass
 
             yield {"type": "verifying"}
 
@@ -130,6 +168,16 @@ class SwarmOrchestrator:
                 swarm_id, verification["results"], persona
             )
 
+            # 发布 swarm.completed 事件
+            try:
+                await bus.publish(
+                    "swarm.completed",
+                    {"swarm_id": swarm_id, "result": final_result},
+                    source="swarm_orchestrator",
+                )
+            except Exception:
+                pass
+
             yield {"type": "completed", "result": final_result}
 
         except Exception as exc:
@@ -138,6 +186,15 @@ class SwarmOrchestrator:
                 if swarm:
                     swarm.status = "failed"
                     await session.commit()
+            # 发布 swarm.failed 事件
+            try:
+                await bus.publish(
+                    "swarm.failed",
+                    {"swarm_id": swarm_id, "error": str(exc)},
+                    source="swarm_orchestrator",
+                )
+            except Exception:
+                pass
             yield {"type": "error", "error": str(exc)}
 
     async def execute_worker(

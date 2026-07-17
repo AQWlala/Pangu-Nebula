@@ -17,11 +17,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
 from typing import Any
 
+from ..core.event_bus import get_event_bus
 from ..db.engine import async_session
 from ..tools.registry import get_tool, is_registered
 from .audit_logger import audit_logger
@@ -29,6 +31,21 @@ from .injection_guard import injection_guard
 
 
 logger = logging.getLogger(__name__)
+
+
+# v2.3.0 Phase 3-A1: 按工具类型的超时表 (秒)
+# - 防止同步阻塞工具 (如 uiautomation 遍历 / 网络请求) 长时间占用事件循环
+# - 工具调用超时后, publish chat.tool.call.completed (success=False, reason="timeout")
+_TOOL_TIMEOUTS: dict[str, int] = {
+    "computer_screenshot": 30,
+    "computer_click": 10,
+    "computer_type_text": 30,
+    "computer_get_a11y_tree": 60,
+    "file_read": 10,
+    "file_write": 10,
+    "web_search": 30,
+    "default": 60,
+}
 
 
 # 工具所需额外权限映射 (基础权限 tools_enabled 对所有工具生效,此处只列额外项)
@@ -196,7 +213,45 @@ class ToolExecutor:
             # v2.2.1 F1: 注入 persona 供 file_read/file_write 的 PathGuard 使用
             # persona 不在 allowed_kwargs 中, 但作为内部注入参数通过 **kwargs 传递,
             # 不会与 F5 的 LLM 参数过滤冲突 (filtered_args 已先于 persona 处理)
-            result = await tool.execute(**filtered_args, persona=persona)
+            # v2.3.0 Phase 3-A1: 用 asyncio.wait_for 包装执行, 按工具类型应用超时
+            timeout = _TOOL_TIMEOUTS.get(name, _TOOL_TIMEOUTS["default"])
+            try:
+                result = await asyncio.wait_for(
+                    tool.execute(**filtered_args, persona=persona),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                # 超时: 记录审计 + publish chat.tool.call.completed (success=False, reason=timeout)
+                duration_ms = int((time.time() - start) * 1000)
+                timeout_msg = f"工具 {name} 执行超时 (>{timeout}s)"
+                logger.warning(timeout_msg)
+                await self._audit(
+                    name, persona, arguments, timeout_msg, False, duration_ms,
+                    {"timeout": timeout, "reason": "timeout"},
+                )
+                # publish 超时事件 — chat_service 也监听此事件类型用于 UI 状态收尾
+                try:
+                    bus = get_event_bus()
+                    await bus.publish(
+                        "chat.tool.call.completed",
+                        {
+                            "call_id": "",  # tool_executor 无 call_id 上下文, 由调用方在 timeout 回调中补全
+                            "tool_name": name,
+                            "success": False,
+                            "result": "",
+                            "error": timeout_msg,
+                            "reason": "timeout",
+                        },
+                        source="tool_executor",
+                    )
+                except Exception as ev_exc:
+                    logger.warning("publish timeout event failed: %s", ev_exc)
+                return {
+                    "success": False,
+                    "output": "",
+                    "error": timeout_msg,
+                    "duration_ms": duration_ms,
+                }
             duration_ms = int((time.time() - start) * 1000)
             output = result.output if result.success else (result.error or result.output)
 

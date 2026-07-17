@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 from .config import load_settings, APP_DIR
-from .db.engine import init_db
+from .db.engine import init_db, async_session
 from .api.chat import router as chat_router
 from .api.persona import router as persona_router
 from .api.swarm import router as swarm_router
@@ -51,6 +51,10 @@ from .api.health import router as health_check_router
 from .api.cu import router as cu_router
 from .api.kb import router as kb_router
 from .api.graph import router as graph_router
+from .api.events import router as events_router
+from .core.event_bus import EventBus, set_global_event_bus
+from .services.heartbeat_service import create_default_heartbeat
+from .services.linkage_coordinator import LinkageCoordinator
 from .tools import builtin_tools  # noqa: F401
 from .tools import command_tool, code_tool  # noqa: F401  v2.2.0 Phase 2-3
 from .tools import browser_tools, computer_tools  # noqa: F401  v2.2.0 Phase 5
@@ -102,7 +106,44 @@ async def lifespan(app: FastAPI):
         )
 
     app.state.services_loaded = True
+
+    # v2.3.0 Phase 0: 初始化事件总线 + 心跳节拍器
+    # EventBus 是跨模块联动的脊柱,所有 publish/subscribe 经此扇出
+    event_bus = EventBus()
+    app.state.event_bus = event_bus
+    set_global_event_bus(event_bus)
+
+    # HeartbeatService: 5 种节拍 (微/小/中/大/自检) 错峰执行
+    heartbeat = create_default_heartbeat(app.state)
+    app.state.heartbeat_service = heartbeat
+    await heartbeat.start()
+
+    # v2.3.0 Phase 2: 跨模块联动协调器 (后端消费端)
+    # 在 HeartbeatService 之后启动, 注册 5 条联动消费者 (健康/工具/MCP/委派/DAG)
+    # graph_executor 传 None: main.py 无全局实例, 链路 6 降级为 log-only
+    linkage = LinkageCoordinator(
+        event_bus=event_bus,
+        session_factory=async_session,
+        graph_executor=None,
+    )
+    app.state.linkage_coordinator = linkage
+    await linkage.start()
+
     yield
+
+    # v2.3.0 Phase 2: 先停止联动协调器 (避免 shutdown 期间消费新事件),
+    # 再停止心跳节拍器
+    try:
+        await linkage.stop()
+    except Exception:
+        pass
+
+    # v2.3.0: 停止心跳节拍器 (先停,避免 shutdown 期间触发新任务)
+    try:
+        await heartbeat.stop()
+    except Exception:
+        pass
+
     # Shutdown: release store connections. Each close() is wrapped in its own
     # try/except so one failing release does not skip the others.
     for _attr in ("vector_store", "graph_store"):
@@ -170,6 +211,12 @@ async def sidecar_token_auth(request: Request, call_next):
         provided = auth_header[7:]
         if secrets.compare_digest(provided, token):
             return await call_next(request)
+    # v2.3.0: SSE 端点 (EventSource/fetch GET) 无法设置 Authorization header,
+    # 额外接受查询参数 ?token=<sidecar_token> (仅 /events/stream 路径)
+    if request.url.path == "/events/stream":
+        q_token = request.query_params.get("token", "")
+        if q_token and secrets.compare_digest(q_token, token):
+            return await call_next(request)
     # Reject all other requests without valid token
     return JSONResponse(
         status_code=401,
@@ -221,6 +268,7 @@ app.include_router(health_check_router)
 app.include_router(cu_router)
 app.include_router(kb_router)
 app.include_router(graph_router)
+app.include_router(events_router)
 
 
 @app.get("/health")

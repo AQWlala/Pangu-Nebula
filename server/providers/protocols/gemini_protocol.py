@@ -138,14 +138,27 @@ class GeminiProtocol(ProtocolBase):
         content = candidate.get("content") or {}
         parts = content.get("parts") or []
         text = ""
+        reasoning = ""
+        reasoning_phase: str | None = None
+        # v2.3.0 Phase 3-A1: Gemini 2.0 在 parts[] 中用 `thought: true` 标记推理部分
+        # - thought parts (thought=True) → 填充 reasoning
+        # - 普通 parts (无 thought 字段或 thought=False) → 填充 text
         for part in parts:
             t = part.get("text")
-            if t:
+            if not t:
+                continue
+            if part.get("thought") is True:
+                reasoning += t
+                if reasoning_phase is None:
+                    reasoning_phase = "thinking"
+            else:
                 text += t
         finish = candidate.get("finishReason")
         return StreamChunk(
             text=text,
             finish_reason=finish.lower() if finish else None,
+            reasoning=reasoning,
+            reasoning_phase=reasoning_phase,
             raw=obj,
         )
 
@@ -215,7 +228,10 @@ class GeminiProtocol(ProtocolBase):
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     chunk = self._parse_sse_chunk(line)
-                    if chunk is not None and chunk.text:
+                    # v2.3.0 Phase 3-A1: 修复原 `and chunk.text` 过滤 bug
+                    # (会丢弃 finish 块和纯 reasoning 块)。yield 所有非 None chunk,
+                    # 即使 text 为空 (只要有 finish_reason / reasoning 元数据)。
+                    if chunk is not None:
                         yield chunk
 
     # ---- 嵌入 ----

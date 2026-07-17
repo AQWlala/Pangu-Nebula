@@ -26,6 +26,7 @@ v2.2.1 F7: 安全加固
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import re
@@ -96,30 +97,38 @@ class ComputerScreenshotTool(BaseTool):
         if not ok:
             return ToolResult(success=False, output="", error=err)
         try:
-            import pyautogui  # type: ignore
-
-            # pyautogui.screenshot() 返回 PIL.Image
-            img = pyautogui.screenshot()
-
-            # v2.2.1 F7: 截图压缩 (修复 S8) — 缩放到 1024x768 + JPEG quality=85
-            # 保持比例,仅当原图大于目标尺寸时缩放
-            # 使用 PIL 默认的 BICUBIC 重采样 (无需显式 import PIL.Image)
-            orig_w, orig_h = img.size
-            if orig_w > _SCREENSHOT_MAX_WIDTH or orig_h > _SCREENSHOT_MAX_HEIGHT:
-                img.thumbnail((_SCREENSHOT_MAX_WIDTH, _SCREENSHOT_MAX_HEIGHT))
-            # 转 RGB (JPEG 不支持 alpha 通道)
-            if img.mode in ("RGBA", "LA", "P"):
-                img = img.convert("RGB")
-
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=_SCREENSHOT_JPEG_QUALITY, optimize=True)
-            img_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+            # v2.3.0 Phase 3-A1: 同步阻塞调用 (pyautogui + PIL) 包入 asyncio.to_thread
+            # 避免阻塞事件循环 (截图 + 压缩可能耗时数百毫秒)
+            img_w, img_h, img_b64 = await asyncio.to_thread(self._capture_and_compress)
             return ToolResult(
                 success=True,
-                output=f"截图成功 (JPEG {img.size[0]}x{img.size[1]}, base64 长度: {len(img_b64)})。前 200 字符: {img_b64[:200]}",
+                output=f"截图成功 (JPEG {img_w}x{img_h}, base64 长度: {len(img_b64)})。前 200 字符: {img_b64[:200]}",
             )
         except Exception as exc:
             return ToolResult(success=False, output="", error=f"截图失败: {exc}")
+
+    @staticmethod
+    def _capture_and_compress() -> tuple[int, int, str]:
+        """同步: 截图 + 压缩 + base64 编码。在线程中执行避免阻塞事件循环。"""
+        import pyautogui  # type: ignore
+
+        # pyautogui.screenshot() 返回 PIL.Image
+        img = pyautogui.screenshot()
+
+        # v2.2.1 F7: 截图压缩 (修复 S8) — 缩放到 1024x768 + JPEG quality=85
+        # 保持比例,仅当原图大于目标尺寸时缩放
+        # 使用 PIL 默认的 BICUBIC 重采样 (无需显式 import PIL.Image)
+        orig_w, orig_h = img.size
+        if orig_w > _SCREENSHOT_MAX_WIDTH or orig_h > _SCREENSHOT_MAX_HEIGHT:
+            img.thumbnail((_SCREENSHOT_MAX_WIDTH, _SCREENSHOT_MAX_HEIGHT))
+        # 转 RGB (JPEG 不支持 alpha 通道)
+        if img.mode in ("RGBA", "LA", "P"):
+            img = img.convert("RGB")
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=_SCREENSHOT_JPEG_QUALITY, optimize=True)
+        img_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        return img.size[0], img.size[1], img_b64
 
 
 @register_tool("computer_click")
@@ -152,7 +161,8 @@ class ComputerClickTool(BaseTool):
         try:
             import pyautogui  # type: ignore
 
-            pyautogui.click(x=x, y=y, button=button)
+            # v2.3.0 Phase 3-A1: pyautogui.click 是同步阻塞调用,包入 asyncio.to_thread
+            await asyncio.to_thread(pyautogui.click, x=x, y=y, button=button)
             return ToolResult(
                 success=True,
                 output=f"已在 ({x}, {y}) 点击 {button} 按钮",
@@ -210,25 +220,31 @@ class ComputerTypeTextTool(BaseTool):
                         output="",
                         error="pyperclip 未安装,无法输入 CJK 字符。请运行 pip install pyperclip",
                     )
-                pyperclip.copy(text)
+                # v2.3.0 Phase 3-A1: pyperclip + hotkey 是同步阻塞,包入 to_thread
                 import sys
                 if sys.platform == "darwin":
-                    pa.hotkey("command", "v")
+                    await asyncio.to_thread(self._paste_cjk, pa, pyperclip, text, "command", "v")
                 else:
-                    pa.hotkey("ctrl", "v")
+                    await asyncio.to_thread(self._paste_cjk, pa, pyperclip, text, "ctrl", "v")
                 return ToolResult(
                     success=True,
                     output=f"已通过剪贴板输入文本 (含 CJK, {len(text)} 字符)",
                 )
 
-            # ASCII 字符直接 typewrite
-            pa.typewrite(text, interval=interval)
+            # ASCII 字符直接 typewrite (interval>0 时会阻塞,放线程)
+            await asyncio.to_thread(pa.typewrite, text, interval=interval)
             return ToolResult(
                 success=True,
                 output=f"已输入文本: {text[:50]}{'...' if len(text) > 50 else ''}",
             )
         except Exception as exc:
             return ToolResult(success=False, output="", error=f"输入失败: {exc}")
+
+    @staticmethod
+    def _paste_cjk(pa_module, pyperclip_module, text: str, *hotkey_args) -> None:
+        """同步: CJK 文本通过剪贴板粘贴。在线程中执行避免阻塞事件循环。"""
+        pyperclip_module.copy(text)
+        pa_module.hotkey(*hotkey_args)
 
 
 @register_tool("computer_get_a11y_tree")
@@ -263,15 +279,19 @@ class ComputerGetA11yTreeTool(BaseTool):
             )
 
         try:
-            root = ua.GetRootControl()
-            tree = self._walk_a11y(root, depth=0, max_depth=max_depth)
-            import json
-            return ToolResult(
-                success=True,
-                output=f"无障碍树 (深度 {max_depth}):\n{json.dumps(tree, ensure_ascii=False, indent=2)[:2000]}",
-            )
+            # v2.3.0 Phase 3-A1: uiautomation 遍历是同步阻塞 (且可能很慢),
+            # 包入 asyncio.to_thread 避免阻塞事件循环
+            output_text = await asyncio.to_thread(self._build_a11y_output, ua, max_depth)
+            return ToolResult(success=True, output=output_text)
         except Exception as exc:
             return ToolResult(success=False, output="", error=f"获取无障碍树失败: {exc}")
+
+    def _build_a11y_output(self, ua_module, max_depth: int) -> str:
+        """同步: 获取根控件 + 遍历 + 序列化。在线程中执行避免阻塞事件循环。"""
+        import json
+        root = ua_module.GetRootControl()
+        tree = self._walk_a11y(root, depth=0, max_depth=max_depth)
+        return f"无障碍树 (深度 {max_depth}):\n{json.dumps(tree, ensure_ascii=False, indent=2)[:2000]}"
 
     @staticmethod
     def _walk_a11y(control, depth: int, max_depth: int) -> dict:

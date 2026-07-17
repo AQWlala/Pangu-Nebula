@@ -1,11 +1,30 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.event_bus import get_event_bus
 from ..db.engine import get_session
 from ..services.memory_service import memory_service
 from .models import MemoryCreate, MemoryUpdate, MemorySearchQuery
 
 router = APIRouter(prefix="/memory", tags=["memory"])
+
+
+async def _publish_memory_event(node_id: int, action: str) -> None:
+    """v2.3.0 Phase 3-B: publish memory.graph.updated 事件
+
+    供前端 MemoryGraph 通过 SSE 增量 patch 图谱。
+    异常不阻断主流程 (事件丢失可由下一次全量加载修正)。
+    """
+    try:
+        bus = get_event_bus()
+        await bus.publish(
+            "memory.graph.updated",
+            {"node_id": node_id, "action": action},
+            source="memory_api",
+        )
+    except Exception:
+        # 事件发布失败不影响 CRUD 返回, 仅吞掉异常
+        pass
 
 
 @router.post("", summary="创建记忆", description="创建一条新的记忆条目,可指定层级、标题、HTML 内容、重要性和标签")
@@ -19,6 +38,10 @@ async def create_memory(req: MemoryCreate, session: AsyncSession = Depends(get_s
         importance=req.importance,
         tags=req.tags,
     )
+    # publish memory.graph.updated (action=create) — 前端 SSE 增量 patch
+    node_id = data.get("id") if isinstance(data, dict) else None
+    if node_id is not None:
+        await _publish_memory_event(node_id, "create")
     return {"ok": True, "data": data, "error": None}
 
 
@@ -87,6 +110,8 @@ async def update_memory(
         raise HTTPException(
             status_code=404, detail={"ok": False, "data": None, "error": "Memory not found"}
         )
+    # publish memory.graph.updated (action=update) — 前端 SSE 增量 patch
+    await _publish_memory_event(memory_id, "update")
     return {"ok": True, "data": data, "error": None}
 
 
@@ -97,6 +122,8 @@ async def delete_memory(memory_id: int, session: AsyncSession = Depends(get_sess
         raise HTTPException(
             status_code=404, detail={"ok": False, "data": None, "error": "Memory not found"}
         )
+    # publish memory.graph.updated (action=delete) — 前端 SSE 增量 patch
+    await _publish_memory_event(memory_id, "delete")
     return {"ok": True, "data": {"id": memory_id, "deleted": True}, "error": None}
 
 

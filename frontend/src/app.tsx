@@ -20,7 +20,9 @@ import WikiReviewInbox from "./components/WikiReviewInbox"
 import { WikiGraph } from "./components/graph/WikiGraph"
 import { CUControlPanel } from "./components/cu/CUControlPanel"
 import Dashboard from "./components/Dashboard"
+import AutoWorkPanel from "./components/AutoWorkPanel"
 import { apiGet, apiPost, getApiBase, IS_TAURI, waitForSidecar } from "./lib/api"
+import { useGlobalState } from "./lib/store"
 
 export default function App() {
   // 当前页面 - 使用 useState 管理, 不使用 URL 路由 (PyWebView 环境)
@@ -169,6 +171,8 @@ export default function App() {
         return <EvolutionPage />
       case "dashboard":
         return <Dashboard />
+      case "autowork":
+        return <AutoWorkPanel />
       case "settings":
         return <Settings />
       case "diagnostics":
@@ -289,28 +293,93 @@ function EvolutionPage() {
   const [logs, setLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  // v2.3.0 Phase 3-B: 订阅 store 的 evolution.log.appended 事件流
+  const { state } = useGlobalState()
+  const sseLogs = state.evolutionLogs
+  const sseConnected = state.sseConnected
+
+  const loadLogs = async () => {
+    setLoading(true)
+    setError("")
+    try {
+      // /evolution 返回引擎信息对象 (非数组), 日志列表在 /evolution/logs
+      const data = await apiGet<{ items: any[]; count: number }>("/evolution/logs")
+      // 防御性: 后端契约变更时不应崩溃
+      setLogs(Array.isArray(data?.items) ? data.items : [])
+    } catch (e: any) {
+      setError(e.message || "加载失败")
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        // /evolution 返回引擎信息对象 (非数组), 日志列表在 /evolution/logs
-        const data = await apiGet<{ items: any[]; count: number }>("/evolution/logs")
-        // 防御性: 后端契约变更时不应崩溃
-        setLogs(Array.isArray(data?.items) ? data.items : [])
-      } catch (e: any) {
-        setError(e.message || "加载失败")
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
+    loadLogs()
   }, [])
+
+  // 监听 SSE 推送的 evolution.log.appended 事件 → 合并到 logs (去重)
+  // sseLogs 是 store 中累积的最近 50 条进化日志事件
+  useEffect(() => {
+    if (!sseLogs || sseLogs.length === 0) return
+    setLogs((prev) => {
+      const existing = new Set(
+        prev.map((l) => l.id ?? null).filter((x) => x != null)
+      )
+      const merged = [...prev]
+      for (const ev of sseLogs) {
+        // 去重: 同 log_id 跳过
+        if (ev.id != null && existing.has(ev.id)) continue
+        if (ev.id != null) existing.add(ev.id)
+        merged.unshift({
+          id: ev.id,
+          title: ev.title,
+          event: ev.phase,
+          description: ev.description,
+          detail: ev.detail,
+          created_at: ev.created_at,
+        })
+      }
+      // 保留最近 100 条
+      return merged.slice(0, 100)
+    })
+  }, [sseLogs])
 
   return (
     <div style={{ padding: "24px", maxWidth: "800px", margin: "0 auto" }}>
-      <h1 style={{ fontSize: "var(--font-2xl)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "24px" }}>
-        🌱 进化日志
-      </h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
+        <h1 style={{ fontSize: "var(--font-2xl)", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
+          🌱 进化日志
+        </h1>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <span
+            style={{
+              fontSize: "var(--font-xs)",
+              padding: "4px 10px",
+              borderRadius: "var(--radius-md)",
+              color: sseConnected ? "#28C840" : "#FF5F57",
+              border: `1px solid ${sseConnected ? "#28C840" : "#FF5F57"}`,
+            }}
+            title={sseConnected ? "SSE 实时连接, 新日志自动追加" : "SSE 断开, 点击刷新手动拉取"}
+          >
+            ● {sseConnected ? "实时" : "离线"}
+          </span>
+          <button
+            onClick={() => loadLogs()}
+            disabled={loading}
+            style={{
+              padding: "6px 14px",
+              borderRadius: "var(--radius-md)",
+              background: "var(--accent)",
+              color: "#fff",
+              border: "none",
+              cursor: loading ? "wait" : "pointer",
+              fontSize: "var(--font-sm)",
+            }}
+          >
+            {loading ? "刷新中..." : "⟳ 刷新"}
+          </button>
+        </div>
+      </div>
       {loading && <div style={{ color: "var(--text-secondary)" }}>加载中...</div>}
       {error && (
         <div style={{ padding: "12px", borderRadius: "var(--radius-md)", background: "rgba(255,95,87,0.1)", color: "#FF5F57", marginBottom: "16px" }}>
@@ -324,7 +393,7 @@ function EvolutionPage() {
       )}
       {logs.map((log, i) => (
         <div
-          key={i}
+          key={log.id ?? i}
           style={{
             padding: "16px",
             borderRadius: "var(--radius-lg)",

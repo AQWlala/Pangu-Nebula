@@ -16,6 +16,16 @@ interface WikiPage {
   updated_at?: string
 }
 
+// v2.3.0 Phase 3-D: 对话选择项 (GET /wiki/conversations 返回)
+interface ConvItem {
+  id: number
+  title: string
+  persona_id?: number | null
+  created_at?: string
+  updated_at?: string
+  message_count?: number
+}
+
 // 极简 Markdown → HTML(用于编辑预览)
 function renderMarkdown(md: string): string {
   if (!md) return ''
@@ -65,6 +75,13 @@ export default function WikiBrowser() {
   const [convId, setConvId] = useState('')
   const [compileTitle, setCompileTitle] = useState('')
   const [compiling, setCompiling] = useState(false)
+
+  // v2.3.0 Phase 3-D: 对话选择器
+  const [convPickerOpen, setConvPickerOpen] = useState(false)
+  const [conversations, setConversations] = useState<ConvItem[]>([])
+  const [convLoading, setConvLoading] = useState(false)
+  const [selectedConvIds, setSelectedConvIds] = useState<number[]>([])
+  const [convSearch, setConvSearch] = useState('')
 
   // 加载列表
   async function loadPages() {
@@ -151,22 +168,47 @@ export default function WikiBrowser() {
     }
   }
 
+  // v2.3.0 Phase 3-D: 加载可选对话列表
+  async function loadConversations() {
+    setConvLoading(true)
+    try {
+      const data = await apiGet<ConvItem[]>('/wiki/conversations')
+      setConversations(Array.isArray(data) ? data : [])
+    } catch (e: any) {
+      setConversations([])
+    } finally {
+      setConvLoading(false)
+    }
+  }
+
+  // 切换对话选择 (多选)
+  function toggleConv(id: number) {
+    setSelectedConvIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
   // 编译对话为 Wiki
+  // v2.3.0 Phase 3-D: 优先使用 selectedConvIds (多选); 回退到手动输入 convId (单选)
   async function compileFromConversation() {
-    const id = parseInt(convId, 10)
-    if (!id) {
-      alert('请输入有效的对话 ID')
-      return
+    const body: any = { title: compileTitle || undefined }
+    if (selectedConvIds.length > 0) {
+      body.conversation_ids = selectedConvIds
+    } else {
+      const id = parseInt(convId, 10)
+      if (!id) {
+        alert('请输入有效的对话 ID, 或从对话选择器中选择')
+        return
+      }
+      body.conversation_id = id
     }
     setCompiling(true)
     try {
-      const result = await apiPost<WikiPage>('/wiki/compile', {
-        conversation_id: id,
-        title: compileTitle || undefined,
-      })
+      const result = await apiPost<WikiPage>('/wiki/compile', body)
       setCompileOpen(false)
       setConvId('')
       setCompileTitle('')
+      setSelectedConvIds([])
       await loadPages()
       if (result?.id != null) setSelectedId(result.id)
     } catch (e: any) {
@@ -418,23 +460,85 @@ export default function WikiBrowser() {
             <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
               从对话编译 Wiki
             </h3>
+
+            {/* 已选对话标签 (多选) */}
+            {selectedConvIds.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  已选对话 ({selectedConvIds.length})
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedConvIds.map((id) => {
+                    const c = conversations.find((x) => x.id === id)
+                    return (
+                      <span
+                        key={id}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs"
+                        style={{
+                          background: 'var(--bg-secondary)',
+                          color: 'var(--text-primary)',
+                          border: '1px solid var(--accent)',
+                        }}
+                      >
+                        #{id} {(c?.title || '').slice(0, 12)}
+                        <button
+                          onClick={() => toggleConv(id)}
+                          className="ml-0.5"
+                          style={{ color: 'var(--text-secondary)' }}
+                          title="移除"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    )
+                  })}
+                  <button
+                    onClick={() => setSelectedConvIds([])}
+                    className="text-xs underline"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    清空
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 从对话选择按钮 + 手动输入 fallback */}
             <div className="flex flex-col gap-1">
               <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                对话 ID
+                对话 ID {selectedConvIds.length > 0 && '(已选多对话时此项忽略)'}
               </label>
-              <input
-                type="number"
-                placeholder="例如: 12"
-                value={convId}
-                onInput={(e) => setConvId((e.target as HTMLInputElement).value)}
-                className="px-3 py-2 rounded-lg text-sm"
-                style={{
-                  background: 'var(--bg-primary)',
-                  color: 'var(--text-primary)',
-                  border: '1px solid var(--border)',
-                }}
-              />
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  placeholder="例如: 12 (手动 fallback)"
+                  value={convId}
+                  onInput={(e) => setConvId((e.target as HTMLInputElement).value)}
+                  className="flex-1 px-3 py-2 rounded-lg text-sm"
+                  style={{
+                    background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border)',
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    setConvPickerOpen(true)
+                    if (conversations.length === 0) loadConversations()
+                  }}
+                  className="px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+                  style={{
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border)',
+                  }}
+                  title="从对话历史中选择 (多选)"
+                >
+                  📋 从对话选择
+                </button>
+              </div>
             </div>
+
             <div className="flex flex-col gap-1">
               <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 标题(可选)
@@ -471,6 +575,120 @@ export default function WikiBrowser() {
                 style={{ background: 'var(--accent)' }}
               >
                 {compiling ? '编译中...' : '开始编译'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v2.3.0 Phase 3-D: 对话选择器 (多选) */}
+      {compileOpen && convPickerOpen && (
+        <div
+          className="fixed inset-0 flex items-center justify-center p-4 z-50"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={() => setConvPickerOpen(false)}
+        >
+          <div
+            className="rounded-2xl p-5 w-full max-w-lg flex flex-col gap-3"
+            style={{
+              background: 'var(--bg-card)',
+              boxShadow: 'var(--shadow-xl)',
+              border: '1px solid var(--border)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                选择对话 (多选)
+              </h3>
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                已选 {selectedConvIds.length}
+              </span>
+            </div>
+            <input
+              type="text"
+              placeholder="🔍 搜索对话标题"
+              value={convSearch}
+              onInput={(e) => setConvSearch((e.target as HTMLInputElement).value)}
+              className="px-3 py-2 rounded-lg text-sm"
+              style={{
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border)',
+              }}
+            />
+            <div
+              className="flex flex-col gap-1 overflow-y-auto"
+              style={{ maxHeight: 360 }}
+            >
+              {convLoading ? (
+                <div className="text-center py-6 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  加载中...
+                </div>
+              ) : conversations.length === 0 ? (
+                <div className="text-center py-6 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  暂无对话
+                </div>
+              ) : (
+                conversations
+                  .filter((c) =>
+                    convSearch
+                      ? (c.title || '').toLowerCase().includes(convSearch.toLowerCase())
+                      : true
+                  )
+                  .map((c) => {
+                    const checked = selectedConvIds.includes(c.id)
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => toggleConv(c.id)}
+                        className="text-left px-3 py-2 rounded-lg transition flex items-center gap-2"
+                        style={{
+                          background: checked ? 'var(--bg-secondary)' : 'var(--bg-primary)',
+                          border: checked
+                            ? '1px solid var(--accent)'
+                            : '1px solid var(--border)',
+                        }}
+                      >
+                        <span
+                          className="inline-flex items-center justify-center w-4 h-4 rounded text-xs flex-shrink-0"
+                          style={{
+                            background: checked ? 'var(--accent)' : 'transparent',
+                            border: '1px solid var(--border)',
+                            color: '#fff',
+                          }}
+                        >
+                          {checked ? '✓' : ''}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div
+                            className="text-sm font-medium truncate"
+                            style={{ color: 'var(--text-primary)' }}
+                          >
+                            #{c.id} {c.title}
+                          </div>
+                          <div
+                            className="text-xs"
+                            style={{ color: 'var(--text-secondary)' }}
+                          >
+                            {c.updated_at
+                              ? new Date(c.updated_at).toLocaleString('zh-CN')
+                              : ''}
+                            {c.message_count != null ? ` · ${c.message_count} 条消息` : ''}
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })
+              )}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setConvPickerOpen(false)}
+                className="px-4 py-1.5 rounded-lg text-sm font-medium text-white"
+                style={{ background: 'var(--accent)' }}
+              >
+                确定 ({selectedConvIds.length})
               </button>
             </div>
           </div>

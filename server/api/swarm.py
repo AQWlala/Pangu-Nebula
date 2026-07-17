@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.event_bus import get_event_bus
 from ..db.engine import get_session
+from ..services.swarm_orchestrator import SwarmOrchestrator
 from ..services.swarm_service import SwarmService
 from .models import SwarmCreate, SwarmUpdate
 
@@ -60,9 +62,56 @@ async def run_swarm(swarm_id: int, session: AsyncSession = Depends(get_session))
     if swarm is None:
         raise HTTPException(status_code=404, detail={"ok": False, "data": None, "error": "Swarm not found"})
 
+    bus = get_event_bus()
+    persona_id = swarm.get("persona_id") if isinstance(swarm, dict) else None
+    title = swarm.get("title") if isinstance(swarm, dict) else None
+
+    # 创建后 publish: swarm.created 和 swarm.started (异常不阻断主流程)
+    try:
+        await bus.publish(
+            "swarm.created",
+            {"swarm_id": swarm_id, "persona_id": persona_id, "title": title},
+            source="swarm_api",
+        )
+        await bus.publish(
+            "swarm.started",
+            {"swarm_id": swarm_id, "persona_id": persona_id, "title": title},
+            source="swarm_api",
+        )
+    except Exception:
+        pass
+
+    orchestrator = SwarmOrchestrator()
+
     async def event_stream():
-        async for event in _service.run_swarm(swarm_id):
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        completed = False
+        try:
+            async for event in orchestrator.run_swarm(swarm_id):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                if event.get("type") == "completed":
+                    completed = True
+        except Exception as exc:
+            # 兜底: orchestrator 内部未捕获异常
+            try:
+                await bus.publish(
+                    "swarm.failed",
+                    {"swarm_id": swarm_id, "error": str(exc)},
+                    source="swarm_api",
+                )
+            except Exception:
+                pass
+            yield f"data: {json.dumps({'type': 'error', 'error': str(exc)}, ensure_ascii=False)}\n\n"
+        finally:
+            # 流结束时若未 completed,补发 swarm.failed (客户端断连/异常终止)
+            if not completed:
+                try:
+                    await bus.publish(
+                        "swarm.failed",
+                        {"swarm_id": swarm_id, "error": "stream ended without completion"},
+                        source="swarm_api",
+                    )
+                except Exception:
+                    pass
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

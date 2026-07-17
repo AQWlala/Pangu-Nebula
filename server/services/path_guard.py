@@ -59,6 +59,14 @@ class PathGuard:
         "program files", "program files (x86)",
     }
 
+    # v2.2.2: macOS 符号链接 /etc -> /private/etc, resolve 后 parts[1]='private'
+    # 需检查 parts[2], 但 /private/var/folders 是 macOS 官方 $TMPDIR, 必须排除 var
+    # 此子集仅含绝对系统目录, var 单独由 _WRITE_DENIED_DIR_NAMES 在 Linux/原始路径层处理
+    _MACOS_PRIVATE_DENIED_DIR_NAMES: set[str] = {
+        "etc", "usr", "bin", "sbin", "sys", "proc", "boot", "dev",
+        "lib", "lib64", "root",
+    }
+
     def __init__(
         self,
         allowed_paths: list[str],
@@ -157,15 +165,22 @@ class PathGuard:
             if self._matches_denied(resolved, pattern):
                 return False, f"路径命中黑名单: {pattern}"
 
-        # 3. write 模式额外拒绝系统目录 (根之后的前 2 级目录)
-        # POSIX: ('/', 'etc', ...) ; Windows: ('D:\\', 'etc', ...) — parts[1] 为根下首级目录
-        # macOS 符号链接: /etc -> /private/etc — resolve 后 parts = ('/', 'private', 'etc', ...),
-        # 系统目录 etc 在 parts[2], 故需检查 parts[1:3] 覆盖 macOS /private/* 符号链接场景
+        # 3. write 模式额外拒绝系统目录
+        # - parts[1] 为根下首级目录: Linux/Windows 直接命中 (etc/usr/var...)
+        # - macOS 符号链接: /etc -> /private/etc, resolve 后 parts[1]='private' 漏检
+        #   额外检查 parts[2], 但用 _MACOS_PRIVATE_DENIED_DIR_NAMES 子集 (排除 var)
+        #   因为 /private/var/folders 是 macOS 官方 $TMPDIR, 不可误拒
         if write:
             parts = resolved.parts
-            for part in parts[1:3]:
-                if isinstance(part, str) and part.lower() in self._WRITE_DENIED_DIR_NAMES:
-                    return False, f"write 模式禁止写入系统目录: {part}"
+            if len(parts) >= 2 and isinstance(parts[1], str):
+                p1 = parts[1].lower()
+                if p1 in self._WRITE_DENIED_DIR_NAMES:
+                    return False, f"write 模式禁止写入系统目录: {parts[1]}"
+                # macOS /private/* 符号链接场景
+                if p1 == "private" and len(parts) >= 3 and isinstance(parts[2], str):
+                    p2 = parts[2].lower()
+                    if p2 in self._MACOS_PRIVATE_DENIED_DIR_NAMES:
+                        return False, f"write 模式禁止写入系统目录: {parts[2]}"
 
         # 4. 白名单前缀校验 (用 relative_to 精确判断, 避免字符串前缀陷阱)
         for allowed in self.allowed_paths:

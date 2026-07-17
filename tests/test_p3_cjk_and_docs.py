@@ -10,6 +10,9 @@ from unittest.mock import MagicMock, patch
 
 from server.tools.computer_tools import ComputerTypeTextTool
 
+# v2.2.2: macOS 粘贴用 command+v, 其他平台用 ctrl+v (实现层已按 sys.platform 分流)
+_PASTE_MOD = "command" if sys.platform == "darwin" else "ctrl"
+
 
 # ============================================================
 # P3-3: CJK 输入支持
@@ -43,8 +46,8 @@ class TestComputerTypeTextCJK:
         assert result.success is True
         assert "CJK" in result.output
         mock_clip.copy.assert_called_once_with("你好世界")
-        # Windows 平台用 ctrl+v
-        mock_pa.hotkey.assert_called_once_with("ctrl", "v")
+        # v2.2.2: 跨平台修饰键 — macOS 用 command+v, 其他用 ctrl+v
+        mock_pa.hotkey.assert_called_once_with(_PASTE_MOD, "v")
         mock_pa.typewrite.assert_not_called()
 
     async def test_type_text_cjk_without_pyperclip(self):
@@ -74,7 +77,7 @@ class TestComputerTypeTextCJK:
         assert result.success is True
         assert "CJK" in result.output
         mock_clip.copy.assert_called_once_with(mixed)
-        mock_pa.hotkey.assert_called_once_with("ctrl", "v")
+        mock_pa.hotkey.assert_called_once_with(_PASTE_MOD, "v")
         mock_pa.typewrite.assert_not_called()
 
     async def test_type_text_empty(self):

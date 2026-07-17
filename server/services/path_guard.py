@@ -157,12 +157,15 @@ class PathGuard:
             if self._matches_denied(resolved, pattern):
                 return False, f"路径命中黑名单: {pattern}"
 
-        # 3. write 模式额外拒绝系统目录 (根之后的第一级目录, 即 parts[1])
-        # POSIX: ('/', 'etc', ...) ; Windows: ('D:\\', 'etc', ...) — parts[1] 均为根下首级目录
+        # 3. write 模式额外拒绝系统目录 (根之后的前 2 级目录)
+        # POSIX: ('/', 'etc', ...) ; Windows: ('D:\\', 'etc', ...) — parts[1] 为根下首级目录
+        # macOS 符号链接: /etc -> /private/etc — resolve 后 parts = ('/', 'private', 'etc', ...),
+        # 系统目录 etc 在 parts[2], 故需检查 parts[1:3] 覆盖 macOS /private/* 符号链接场景
         if write:
             parts = resolved.parts
-            if len(parts) >= 2 and parts[1].lower() in self._WRITE_DENIED_DIR_NAMES:
-                return False, f"write 模式禁止写入系统目录: {parts[1]}"
+            for part in parts[1:3]:
+                if isinstance(part, str) and part.lower() in self._WRITE_DENIED_DIR_NAMES:
+                    return False, f"write 模式禁止写入系统目录: {part}"
 
         # 4. 白名单前缀校验 (用 relative_to 精确判断, 避免字符串前缀陷阱)
         for allowed in self.allowed_paths:

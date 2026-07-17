@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 from typing import Any
 
@@ -144,18 +145,30 @@ class ToolExecutor:
 
         return True, "", []
 
-    async def execute(self, name: str, arguments: dict, persona: Any) -> dict:
+    async def execute(
+        self,
+        name: str,
+        arguments: dict,
+        persona: Any,
+        call_id: str = "",
+    ) -> dict:
         """执行工具调用
 
         Args:
             name: 工具名
             arguments: 工具参数 (已从 JSON 解析)
             persona: 角色对象 (需有 tools_enabled/terminal_allowed 等字段)
+            call_id: 工具调用 ID (由 chat_service 传入, 用于超时事件关联原始调用;
+                      v2.3.1 P1-10 修复超时事件 call_id="" 的 Bug)
 
         Returns:
             {"success": bool, "output": str, "error": str, "duration_ms": int}
         """
         start = time.time()
+        # v2.3.1 P0-6: 协作式取消令牌 — 超时后 set, 通知工具内部线程尽快退出
+        # asyncio.wait_for 仅能取消 coroutine, 无法终止 asyncio.to_thread 中的 Python 线程;
+        # 工具在耗时操作前主动检查 cancel_token.is_set() 实现协作式取消
+        cancel_token = threading.Event()
 
         # 1. 注册检查
         if not is_registered(name):
@@ -214,13 +227,17 @@ class ToolExecutor:
             # persona 不在 allowed_kwargs 中, 但作为内部注入参数通过 **kwargs 传递,
             # 不会与 F5 的 LLM 参数过滤冲突 (filtered_args 已先于 persona 处理)
             # v2.3.0 Phase 3-A1: 用 asyncio.wait_for 包装执行, 按工具类型应用超时
+            # v2.3.1 P0-6: cancel_token 通过 kwargs 注入工具, 超时后 set 实现协作式取消
             timeout = _TOOL_TIMEOUTS.get(name, _TOOL_TIMEOUTS["default"])
             try:
                 result = await asyncio.wait_for(
-                    tool.execute(**filtered_args, persona=persona),
+                    tool.execute(**filtered_args, persona=persona, cancel_token=cancel_token),
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
+                # v2.3.1 P0-6: 协作式取消 — 通知工具内部线程停止后续耗时操作
+                # (asyncio.wait_for 仅取消 coroutine, 底层 to_thread 线程需主动检查 is_set)
+                cancel_token.set()
                 # 超时: 记录审计 + publish chat.tool.call.completed (success=False, reason=timeout)
                 duration_ms = int((time.time() - start) * 1000)
                 timeout_msg = f"工具 {name} 执行超时 (>{timeout}s)"
@@ -230,12 +247,13 @@ class ToolExecutor:
                     {"timeout": timeout, "reason": "timeout"},
                 )
                 # publish 超时事件 — chat_service 也监听此事件类型用于 UI 状态收尾
+                # v2.3.1 P1-10: 使用真实 call_id 关联原始工具调用 (修复 call_id="" Bug)
                 try:
                     bus = get_event_bus()
                     await bus.publish(
                         "chat.tool.call.completed",
                         {
-                            "call_id": "",  # tool_executor 无 call_id 上下文, 由调用方在 timeout 回调中补全
+                            "call_id": call_id,
                             "tool_name": name,
                             "success": False,
                             "result": "",

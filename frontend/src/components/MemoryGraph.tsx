@@ -1,4 +1,4 @@
-// 记忆图谱可视化组件 (v2.3.0 Phase 3-B)
+// 记忆图谱可视化组件 (v2.3.0 Phase 3-B, v2.3.1 修复)
 //
 // 三级降级实时更新:
 //   1. SSE (store.useGlobalState.memoryEvents) — 增量 patch
@@ -9,8 +9,13 @@
 // 选中节点时, Inspector 显示详情 + 编辑/删除; 顶部 "+ 新建" 打开创建表单。
 // CRUD 操作由后端 publish memory.graph.updated, 前端通过 SSE 增量 patch。
 //
-// 不引入新依赖, 仅使用 preact/hooks + 已有 apiGet/apiPost/apiPut/apiDelete。
+// v2.3.1 修复:
+//   - 引入 DOMPurify 消毒后端返回的 html_content, 防 XSS
+//   - pollTimerRef 改用 useState 跟踪轮询状态, SSE 状态指示器正确显示
+//   - useGlobalState 改用 selector 模式订阅, 避免全组件树重渲染
+//   - 图谱节点加 tabIndex + onKeyDown (WCAG 合规)
 import { useState, useEffect, useRef, useMemo, useCallback } from 'preact/hooks'
+import DOMPurify from 'dompurify'
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api'
 import { useGlobalState } from '../lib/store'
 import type { Memory } from '../lib/types'
@@ -92,10 +97,9 @@ function renderMarkdown(md: string): string {
 }
 
 export default function MemoryGraph() {
-  // ===== 全局 store (SSE 事件流) =====
-  const { state } = useGlobalState()
-  const memoryEvents = state.memoryEvents
-  const sseConnected = state.sseConnected
+  // ===== 全局 store (SSE 事件流) — v2.3.1: 改用 selector 模式订阅 =====
+  const memoryEvents = useGlobalState((s) => s.memoryEvents)
+  const sseConnected = useGlobalState((s) => s.sseConnected)
 
   // ===== 原始数据 =====
   const [rawNodes, setRawNodes] = useState<Memory[]>([])
@@ -135,8 +139,10 @@ export default function MemoryGraph() {
 
   // ===== SSE 增量 patch 去重 (按 seq) =====
   const lastProcessedSeqRef = useRef<number>(0)
-  // 5s 轮询降级 (SSE 断开时启用)
-  const pollTimerRef = useRef<any>(null)
+  // v2.3.1: 5s 轮询降级改用 useState 跟踪轮询状态, 让 SSE 状态指示器正确重渲染
+  // 原实现 pollTimerRef 是 ref, 变化不触发重渲染, 导致状态徽章始终显示 "离线"
+  const [polling, setPolling] = useState(false)
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // SSE 断开检测: 若 sseConnected 持续 false 超过 5s, 启用轮询
   const sseDownSinceRef = useRef<number | null>(null)
 
@@ -288,12 +294,15 @@ export default function MemoryGraph() {
   }, [memoryEvents, loadGraph])
 
   // ===== 5s 轮询降级 (SSE 断开时启用) =====
+  // v2.3.1: polling 改用 useState 跟踪, 启用/关闭轮询时同步 setState,
+  //         SSE 状态徽章才能根据 polling 正确显示 "轮询 5s"。
   useEffect(() => {
     if (sseConnected) {
       sseDownSinceRef.current = null
       if (pollTimerRef.current) {
         clearInterval(pollTimerRef.current)
         pollTimerRef.current = null
+        setPolling(false)
       }
       return
     }
@@ -309,6 +318,7 @@ export default function MemoryGraph() {
           pollTimerRef.current = setInterval(() => {
             loadGraph()
           }, 5000)
+          setPolling(true)
         }
       }, 5000 - downMs)
       return () => clearTimeout(t)
@@ -317,6 +327,7 @@ export default function MemoryGraph() {
       pollTimerRef.current = setInterval(() => {
         loadGraph()
       }, 5000)
+      setPolling(true)
     }
     return () => {
       // 不在此 cleanup 中清除 interval (由 sseConnected=true 分支处理)
@@ -329,6 +340,7 @@ export default function MemoryGraph() {
       if (pollTimerRef.current) {
         clearInterval(pollTimerRef.current)
         pollTimerRef.current = null
+        setPolling(false)
       }
     }
   }, [])
@@ -561,9 +573,9 @@ export default function MemoryGraph() {
     }
   }
 
-  // SSE 状态指示
-  const sseStatusText = sseConnected ? 'SSE 实时' : pollTimerRef.current ? '轮询 5s' : '离线'
-  const sseStatusColor = sseConnected ? '#28C840' : pollTimerRef.current ? '#FFBD2E' : '#FF5F57'
+  // SSE 状态指示 (v2.3.1: 用 polling state 代替 pollTimerRef.current, 正确触发重渲染)
+  const sseStatusText = sseConnected ? 'SSE 实时' : polling ? '轮询 5s' : '离线'
+  const sseStatusColor = sseConnected ? '#28C840' : polling ? '#FFBD2E' : '#FF5F57'
 
   return (
     <div
@@ -741,9 +753,19 @@ export default function MemoryGraph() {
                 return (
                   <g
                     key={node.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`记忆节点 ${node.title}, 层级 ${node.layer}, 连接数 ${node.connections}`}
                     onMouseDown={(e) => onNodeMouseDown(e, node)}
                     onClick={() => setSelected(node)}
-                    style={{ cursor: 'grab' }}
+                    onKeyDown={(e) => {
+                      // v2.3.1 P1-12: WCAG 键盘可达性 (Enter/Space 触发选中)
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setSelected(node)
+                      }
+                    }}
+                    style={{ cursor: 'grab', outline: 'none' }}
                   >
                     <circle
                       cx={node.x}
@@ -986,8 +1008,10 @@ export default function MemoryGraph() {
                     maxHeight: 240,
                   }}
                   dangerouslySetInnerHTML={{
-                    __html:
-                      detail.html_content || renderMarkdown(detail.content || ''),
+                    // v2.3.1 P0-7: 后端 html_content 经 DOMPurify 消毒, 防 XSS
+                    __html: DOMPurify.sanitize(
+                      detail.html_content || renderMarkdown(detail.content || '')
+                    ),
                   }}
                 />
               )}

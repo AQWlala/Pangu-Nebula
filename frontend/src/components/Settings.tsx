@@ -718,7 +718,7 @@ case "about":
       {/* Provider 添加表单弹窗 */}
       {showProviderForm && (
         <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowProviderForm(false)}>
-          <div className="flex flex-col" style={{ width: '90%', maxWidth: '480px', maxHeight: '90vh', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="添加 Provider" className="flex flex-col" style={{ width: '90%', maxWidth: '480px', maxHeight: '90vh', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between shrink-0" style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
               <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加 Provider</h3>
               <button onClick={() => setShowProviderForm(false)} style={{ border: 'none', background: 'transparent', fontSize: '20px', cursor: 'pointer', color: 'var(--text-secondary)' }}>x</button>
@@ -760,7 +760,7 @@ case "about":
       {/* 渠道添加弹窗 */}
       {showChannelForm && (
         <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowChannelForm(false)}>
-          <div className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="添加渠道" className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
               <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 添加渠道</h3>
             </div>
@@ -787,7 +787,7 @@ case "about":
       {/* 设备配对弹窗 */}
       {showPairingForm && (
         <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowPairingForm(false)}>
-          <div className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="配对新设备" className="flex flex-col" style={{ width: '90%', maxWidth: '420px', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
               <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>+ 配对新设备</h3>
             </div>

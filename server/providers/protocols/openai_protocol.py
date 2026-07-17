@@ -125,7 +125,15 @@ class OpenAIProtocol(ProtocolBase):
         # v2.3.0 Phase 3-A1: 推理过程解析
         # - DeepSeek / 通用推理模型用 delta.reasoning_content
         # - OpenAI o1 / 部分 provider 用 delta.reasoning
-        reasoning_text = delta.get("reasoning_content") or delta.get("reasoning") or ""
+        # v2.3.1 P1-11: OpenAI o1/o3 推理摘要 — delta.reasoning_summary_delta (增量)
+        #   / delta.reasoning_summary (整体); 优先增量, 回退整体
+        reasoning_text = (
+            delta.get("reasoning_content")
+            or delta.get("reasoning")
+            or delta.get("reasoning_summary_delta")
+            or delta.get("reasoning_summary")
+            or ""
+        )
         # 推理阶段标识 (部分 provider 在 reasoning 块上携带 phase 字段)
         reasoning_phase = delta.get("reasoning_phase")
         return StreamChunk(
@@ -188,7 +196,11 @@ class OpenAIProtocol(ProtocolBase):
     async def stream(
         self, messages: list[Message], model: str, **kwargs
     ) -> AsyncIterator[StreamChunk]:
-        """OpenAI 协议的 stream - 直接产出 StreamChunk 含 finish_reason"""
+        """OpenAI 协议的 stream - 直接产出 StreamChunk 含 finish_reason
+
+        v2.3.1: 捕获 HTTPStatusError 后 yield error chunk (finish_reason="error"),
+        而非让异常传播给消费者中断整个流; 保持与 generate() 一致的多模态 fallback。
+        """
         if not self.api_key:
             yield StreamChunk(text=self._mock_generate(messages), finish_reason="mock")
             return
@@ -196,27 +208,67 @@ class OpenAIProtocol(ProtocolBase):
         effective_messages, _ = self._apply_multimodal_fallback(messages)
         payload = self._build_payload(effective_messages, model, kwargs)
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
-            async with client.stream(
-                "POST",
-                self._stream_url(),
-                headers=self._headers(),
-                json=payload,
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    chunk = self._parse_sse_chunk(line)
-                    if chunk is None:
-                        continue
-                    # v2.2.0: 产出文本块 / 工具调用块 / 结束块 (任一非空)
-                    # v2.3.0 Phase 3-A1: 新增 reasoning 块 (推理过程)
-                    if (
-                        chunk.text
-                        or chunk.tool_calls
-                        or chunk.finish_reason
-                        or chunk.reasoning
-                    ):
-                        yield chunk
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+                async with client.stream(
+                    "POST",
+                    self._stream_url(),
+                    headers=self._headers(),
+                    json=payload,
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        chunk = self._parse_sse_chunk(line)
+                        if chunk is None:
+                            continue
+                        # v2.2.0: 产出文本块 / 工具调用块 / 结束块 (任一非空)
+                        # v2.3.0 Phase 3-A1: 新增 reasoning 块 (推理过程)
+                        if (
+                            chunk.text
+                            or chunk.tool_calls
+                            or chunk.finish_reason
+                            or chunk.reasoning
+                        ):
+                            yield chunk
+        except httpx.HTTPStatusError as exc:
+            # v2.3.1: 多模态 fallback (与 generate() 一致) — 含图片时剥离重试一次
+            if self._messages_have_images(effective_messages):
+                stripped = self._strip_images(effective_messages)
+                retry_payload = self._build_payload(stripped, model, kwargs)
+                try:
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+                        async with client.stream(
+                            "POST",
+                            self._stream_url(),
+                            headers=self._headers(),
+                            json=retry_payload,
+                        ) as response:
+                            response.raise_for_status()
+                            async for line in response.aiter_lines():
+                                chunk = self._parse_sse_chunk(line)
+                                if chunk is None:
+                                    continue
+                                if (
+                                    chunk.text
+                                    or chunk.tool_calls
+                                    or chunk.finish_reason
+                                    or chunk.reasoning
+                                ):
+                                    yield chunk
+                    return
+                except httpx.HTTPStatusError as retry_exc:
+                    yield StreamChunk(
+                        text=f"[stream error] {retry_exc}",
+                        finish_reason="error",
+                        raw={"error": str(retry_exc)},
+                    )
+                    return
+            # 无图片或非 HTTPStatusError: yield error chunk (不 re-raise)
+            yield StreamChunk(
+                text=f"[stream error] {exc}",
+                finish_reason="error",
+                raw={"error": str(exc)},
+            )
 
     # ---- 嵌入 ----
 

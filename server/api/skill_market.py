@@ -32,14 +32,17 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 
-from ..core.event_bus import get_event_bus
-from ..db.engine import async_session
-from ..db.orm import Skill as SkillRow
 from ..services.community_registry import get_community_registry
-from ..services.skill_loader import SkillLoader
 from ..services.skill_package import SkillManifest, SkillPackager, SkillInstaller
+# v2.3.1 P0-7: 技能持久化与共享 loader 单例抽取到 skill_persistence
+# (此前 skills.py / skill_market.py 各自实例化 _loader, 导致内存缓存不一致)
+from ..services.skill_persistence import (
+    loader as _loader,
+    load_enabled_map,
+    persist_skill_enabled,
+    publish_skill_toggled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,52 +58,25 @@ router = APIRouter(prefix="/skill-market", tags=["skill-market"])
 _MARKET: dict[str, dict] = {}
 _PUBLISHED_DATA: dict[str, bytes] = {}
 
-# Phase 3-C: SkillLoader 单例 (供 builtin 端点使用, 与 skills.py 的 _loader 独立但扫描同一目录)
-_loader = SkillLoader()
-
 
 # ===== Phase 3-C: 内置/社区技能市场端点 =====
+# v2.3.1 P0-7: 三个持久化函数已抽取到 skill_persistence, 此处保留向后兼容别名
+# (source 参数维持原差异: builtin / skill_market_api)
 
 
 async def _load_enabled_map() -> dict[str, bool]:
-    """从 DB 读取所有 Skill 行的 {name: enabled} 映射 (best-effort)"""
-    try:
-        async with async_session() as session:
-            rows = (await session.execute(select(SkillRow))).scalars().all()
-            return {row.name: bool(row.enabled) for row in rows}
-    except Exception:
-        logger.debug("加载 Skill.enabled 映射失败 (DB 不可用?)", exc_info=True)
-        return {}
+    """[P0-7 委托] 从 DB 读取 {name: enabled} 映射"""
+    return await load_enabled_map()
 
 
 async def _persist_skill_enabled(name: str, enabled: bool) -> None:
-    """持久化 enabled 到 DB (upsert by name)"""
-    try:
-        async with async_session() as session:
-            row = (
-                await session.execute(select(SkillRow).where(SkillRow.name == name))
-            ).scalar_one_or_none()
-            if row is None:
-                row = SkillRow(name=name, enabled=enabled, source="builtin")
-                session.add(row)
-            else:
-                row.enabled = enabled
-            await session.commit()
-    except Exception:
-        logger.warning("持久化 Skill.enabled 失败 name=%s", name, exc_info=True)
+    """[P0-7 委托] 持久化 enabled (source=builtin, 与原实现一致)"""
+    await persist_skill_enabled(name, enabled, source="builtin")
 
 
 async def _publish_skill_toggled(name: str, enabled: bool) -> None:
-    """发布 skill.enabled.toggled 事件 (异常吞掉)"""
-    try:
-        bus = get_event_bus()
-        await bus.publish(
-            "skill.enabled.toggled",
-            {"skill_id": name, "enabled": enabled},
-            source="skill_market_api",
-        )
-    except Exception:
-        logger.debug("publish skill.enabled.toggled 失败 name=%s", name, exc_info=True)
+    """[P0-7 委托] 发布 skill.enabled.toggled 事件 (source=skill_market_api)"""
+    await publish_skill_toggled(name, enabled, source="skill_market_api")
 
 
 class CommunityInstallRequest(BaseModel):

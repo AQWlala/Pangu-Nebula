@@ -83,7 +83,8 @@ function skillIcon(s: SkillDetail): string {
 }
 
 export default function SkillMarketplace() {
-  const { state } = useGlobalState()
+  // v2.3.1: 改用 selector 模式订阅, 避免全组件树重渲染
+  const skillsMcp = useGlobalState((s) => s.skillsMcp)
 
   // 当前 tab
   const [tab, setTab] = useState<TabKey>('installed')
@@ -237,7 +238,7 @@ export default function SkillMarketplace() {
   // 当其他客户端/进程触发 skill.enabled.toggled / mcp.connected / mcp.disconnected 时,
   // store 的 reducer 已更新 skillsMcp, 这里同步到本地镜像。
   useEffect(() => {
-    const gSkills = state.skillsMcp.skills || {}
+    const gSkills = skillsMcp.skills || {}
     setEnabledMap((prev) => {
       const next = { ...prev }
       let changed = false
@@ -253,7 +254,7 @@ export default function SkillMarketplace() {
     if (tab === 'mcp') {
       loadMcpServers()
     }
-  }, [state.skillsMcp])
+  }, [skillsMcp])
 
   // 过滤后的技能 (已安装 tab)
   const filtered = useMemo(() => {
@@ -1149,12 +1150,12 @@ export default function SkillMarketplace() {
           <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
             🔗 已连接服务器
             {/* SSE 实时状态徽章 */}
-            {Object.keys(state.skillsMcp.mcpServers || {}).length > 0 && (
+            {Object.keys(skillsMcp.mcpServers || {}).length > 0 && (
               <span
                 className="ml-2 px-2 py-0.5 rounded-full text-xs"
                 style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
               >
-                SSE: {Object.keys(state.skillsMcp.mcpServers).length}
+                SSE: {Object.keys(skillsMcp.mcpServers).length}
               </span>
             )}
           </div>

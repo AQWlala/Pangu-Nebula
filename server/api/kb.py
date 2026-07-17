@@ -239,6 +239,8 @@ async def import_document(
 _ZIP_MEMBER_MAX_BYTES = 50 * 1024 * 1024
 # zip 内文件总数上限, 防止解压炸弹
 _ZIP_MAX_FILES = 500
+# v2.3.1 P0-3: 单次上传文件大小上限 (50MB), 防止 OOM
+_UPLOAD_MAX_BYTES = 50 * 1024 * 1024
 
 
 def _safe_zip_extract(zip_bytes: bytes, dest: Path) -> list[Path]:
@@ -299,7 +301,13 @@ async def import_zip(
     """
     if not file.filename or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="请上传 .zip 文件")
-    zip_bytes = await file.read()
+    # v2.3.1 P0-3: 限制读取大小, 超限返回 413 防止 OOM
+    zip_bytes = await file.read(_UPLOAD_MAX_BYTES + 1)
+    if len(zip_bytes) > _UPLOAD_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"zip 文件过大 (超过 {_UPLOAD_MAX_BYTES} bytes / 50MB 上限)",
+        )
     if not zip_bytes:
         raise HTTPException(status_code=400, detail="zip 文件为空")
 
@@ -370,7 +378,13 @@ async def upload_file(
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="缺少文件名")
-    raw = await file.read()
+    # v2.3.1 P0-3: 限制读取大小, 超限返回 413 防止 OOM
+    raw = await file.read(_UPLOAD_MAX_BYTES + 1)
+    if len(raw) > _UPLOAD_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件过大 (超过 {_UPLOAD_MAX_BYTES} bytes / 50MB 上限)",
+        )
     if not raw:
         raise HTTPException(status_code=400, detail="文件为空")
 

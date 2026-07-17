@@ -22,19 +22,20 @@ import { CUControlPanel } from "./components/cu/CUControlPanel"
 import Dashboard from "./components/Dashboard"
 import AutoWorkPanel from "./components/AutoWorkPanel"
 import { apiGet, apiPost, getApiBase, IS_TAURI, waitForSidecar } from "./lib/api"
-import { useGlobalState } from "./lib/store"
+import { useGlobalState, useDispatch } from "./lib/store"
 
 export default function App() {
-  // 当前页面 - 使用 useState 管理, 不使用 URL 路由 (PyWebView 环境)
-  const [currentPage, setCurrentPage] = useState("chat")
+  // v2.3.1: 当前页面统一从 store 读取 (移除本地 useState 双轨)
+  const currentPage = useGlobalState((s) => s.currentPage)
+  const dispatch = useDispatch()
   // 主题管理
   const [theme, setTheme] = useState(
     () => localStorage.getItem("app-theme") || "warm-orange"
   )
   // 引导向导
   const [showOnboarding, setShowOnboarding] = useState(false)
-  // 助理心情
-  const [mascotMood, setMascotMood] = useState("idle")
+  // 助理心情 (v2.3.1: 移除未使用的 setMascotMood, 修复 TS6133)
+  const [mascotMood] = useState("idle")
   // 状态栏数据
   const [providerName, setProviderName] = useState("未连接")
   const [personaName, setPersonaName] = useState("默认")
@@ -113,31 +114,23 @@ export default function App() {
     setTheme(newTheme)
   }
 
-  // 导航
-  const handleNavigate = (page: string) => {
-    setCurrentPage(page)
-    // 切换页面时更新助理心情
-    setMascotMood("happy")
-    setTimeout(() => setMascotMood("idle"), 1000)
-  }
-
   // 引导完成
   const handleOnboardingComplete = () => {
     localStorage.setItem("onboarding-complete", "true")
     setShowOnboarding(false)
   }
 
-  // 助理快捷操作
+  // 助理快捷操作 (v2.3.1: 改为 dispatch NAVIGATE)
   const handleMascotAction = (action: string) => {
     switch (action) {
       case "new-chat":
-        setCurrentPage("chat")
+        dispatch({ type: 'NAVIGATE', page: 'chat' })
         break
       case "switch-persona":
-        setCurrentPage("persona")
+        dispatch({ type: 'NAVIGATE', page: 'persona' })
         break
       case "settings":
-        setCurrentPage("settings")
+        dispatch({ type: 'NAVIGATE', page: 'settings' })
         break
     }
   }
@@ -241,9 +234,9 @@ export default function App() {
       {/* 标题栏 - 固定顶部 */}
       <Titlebar theme={theme} onThemeChange={handleThemeChange} />
 
-      {/* 中间区域: 侧边栏 + 主内容 */}
+      {/* 中间区域: 侧边栏 + 主内容 (v2.3.1: Sidebar 自管导航状态, 不再传 props) */}
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar current={currentPage} onNavigate={handleNavigate} />
+        <Sidebar />
         <main
           className="flex-1 overflow-y-auto"
           style={{ background: "var(--bg-primary)" }}
@@ -294,9 +287,9 @@ function EvolutionPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   // v2.3.0 Phase 3-B: 订阅 store 的 evolution.log.appended 事件流
-  const { state } = useGlobalState()
-  const sseLogs = state.evolutionLogs
-  const sseConnected = state.sseConnected
+  // v2.3.1: 改用 selector 模式订阅, 避免全组件树重渲染
+  const sseLogs = useGlobalState((s) => s.evolutionLogs)
+  const sseConnected = useGlobalState((s) => s.sseConnected)
 
   const loadLogs = async () => {
     setLoading(true)

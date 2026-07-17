@@ -1,10 +1,8 @@
 // 侧边栏分组导航 - macOS Finder 风格, 5 组导航项
+// v2.3.1: 导航状态统一从 store 读取, 不再接收 current/onNavigate props;
+//         通过 dispatch NAVIGATE 切换页面。折叠按钮加 aria-expanded (WCAG)。
 import { useState } from "preact/hooks"
-
-interface SidebarProps {
-  current: string
-  onNavigate: (page: string) => void
-}
+import { useGlobalState, useDispatch } from "../lib/store"
 
 interface NavItem {
   id: string
@@ -61,12 +59,26 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-export default function Sidebar({ current, onNavigate }: SidebarProps) {
+// 向后兼容: 保留 props 类型, 但 current/onNavigate 不再必需 (v2.3.1 改用 store)
+interface SidebarProps {
+  current?: string
+  onNavigate?: (page: string) => void
+}
+
+export default function Sidebar(_props: SidebarProps = {}) {
+  // v2.3.1: 从 store 读取当前页面 + 拿 dispatch
+  const current = useGlobalState((s) => s.currentPage)
+  const dispatch = useDispatch()
+
   // 各分组的折叠状态, 默认全部展开
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   const toggleGroup = (title: string) => {
     setCollapsed((prev) => ({ ...prev, [title]: !prev[title] }))
+  }
+
+  const handleNavigate = (page: string) => {
+    dispatch({ type: 'NAVIGATE', page })
   }
 
   return (
@@ -85,10 +97,12 @@ export default function Sidebar({ current, onNavigate }: SidebarProps) {
         const isCollapsed = collapsed[group.title]
         return (
           <div key={group.title} className="mb-1">
-            {/* 分组标题 - 可点击折叠 */}
+            {/* 分组标题 - 可点击折叠 (v2.3.1: aria-expanded WCAG 合规) */}
             <button
               onClick={() => toggleGroup(group.title)}
               className="flex items-center gap-1 w-full px-3 py-1 text-left"
+              aria-expanded={!isCollapsed}
+              aria-controls={`nav-group-${group.title}`}
               style={{
                 fontSize: "var(--font-xs)",
                 color: "var(--text-secondary)",
@@ -115,13 +129,14 @@ export default function Sidebar({ current, onNavigate }: SidebarProps) {
 
             {/* 导航项列表 */}
             {!isCollapsed && (
-              <div>
+              <div id={`nav-group-${group.title}`} role="group" aria-label={group.title}>
                 {group.items.map((item) => {
                   const isActive = current === item.id
                   return (
                     <button
                       key={item.id}
-                      onClick={() => onNavigate(item.id)}
+                      onClick={() => handleNavigate(item.id)}
+                      aria-current={isActive ? "page" : undefined}
                       className="flex items-center gap-2 w-full px-3 py-1.5 text-left transition-colors"
                       style={{
                         fontSize: "var(--font-sm)",

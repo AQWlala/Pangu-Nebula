@@ -230,8 +230,11 @@ class EventBus:
         """当前活跃订阅者数 (监控/调试用)"""
         return len(self._subscribers)
 
-    def next_seq(self) -> int:
-        """当前 seq (测试用)"""
+    def current_seq(self) -> int:
+        """当前 seq (测试用, SSE 断点续传 last_seq 查询用)
+
+        v2.3.1 P1-9: 原 next_seq 命名误导 (实际返回当前值而非下一个), 重命名为 current_seq。
+        """
         return self._seq
 
 

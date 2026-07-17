@@ -490,6 +490,16 @@ function DAGView({ dagId, refreshTrigger, isSelected, onSelect }: DAGViewProps) 
                     key={node.id}
                     ref={isRunning ? runningNodeRef : undefined}
                     onClick={() => setSelectedNodeId(node.node_id)}
+                    // v2.3.1: WCAG 合规 — 节点支持键盘导航 (Enter/Space 选中)
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`DAG 节点: ${node.title || node.node_id} (${node.status})`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setSelectedNodeId(node.node_id)
+                      }
+                    }}
                     style={{
                       position: 'absolute',
                       left: pos.x + canvasSize.offsetX,
@@ -765,11 +775,13 @@ export default function DAGCanvas() {
   const [refreshTrigger, setRefreshTrigger] = useState(0)
 
   // 从全局 store 获取 SSE 状态 (v2.3.0: 多 DAG + 实时事件)
-  const { state } = useGlobalState()
-  const visibleDagIds = state.visibleDagIds
-  const runningTasks = state.runningTasks
-  // memoryEvents 作为辅助信号 (链路 2: memory.graph.updated → DAG 实时反映)
-  const memoryEvents = state.memoryEvents
+  // v2.3.1: 改用 selector 模式订阅 (避免全组件树重渲染);
+  //         移除 memoryEvents 订阅 — DAG 与 memory 无业务关联,
+  //         仅保留 runningTasks 订阅即可触发 DAGCanvas 刷新。
+  const visibleDagIds = useGlobalState((s) => s.visibleDagIds)
+  const runningTasks = useGlobalState((s) => s.runningTasks)
+  // v2.3.1: 补充 SSE 连接状态 selector (修复 state.sseConnected 引用)
+  const sseConnected = useGlobalState((s) => s.sseConnected)
 
   // 加载 DAG 列表
   const loadDags = useCallback(async () => {
@@ -796,17 +808,12 @@ export default function DAGCanvas() {
   // swarm.created/started/completed/failed 事件会更新 runningTasks,
   // dag.node.started/completed 事件也会通过 EVENT_DISPATCH 进入 store,
   // 这里通过 runningTasks 引用变化感知并刷新画布。
+  // v2.3.1: 移除 memoryEvents 辅助订阅 — DAG 与 memory 无业务关联,
+  //         原实现任何 memory 事件都触发 DAGCanvas 全量重新加载所有可见 DAG,
+  //         产生不必要的性能开销与潜在错误刷新。
   useEffect(() => {
     setRefreshTrigger((t) => t + 1)
   }, [runningTasks])
-
-  // 辅助信号: memoryEvents 变化时也触发 DAG 刷新
-  // 链路 2: memory.graph.updated → DAGCanvas 实时反映
-  // DAGCanvas 主要订阅 runningTasks,memoryEvents 作为辅助信号确保记忆心跳更新后 DAG 同步刷新
-  useEffect(() => {
-    if (!memoryEvents || memoryEvents.length === 0) return
-    setRefreshTrigger((t) => t + 1)
-  }, [memoryEvents])
 
   // 多 DAG 模式: visibleDagIds 非空时并排渲染
   const multiDagMode = visibleDagIds.length > 0
@@ -891,12 +898,12 @@ export default function DAGCanvas() {
         <span
           className="w-2 h-2 rounded-full"
           style={{
-            background: state.sseConnected ? '#10B981' : '#9CA3AF',
-            boxShadow: state.sseConnected ? '0 0 6px #10B981' : 'none',
+            background: sseConnected ? '#10B981' : '#9CA3AF',
+            boxShadow: sseConnected ? '0 0 6px #10B981' : 'none',
           }}
         />
         <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-          {state.sseConnected ? 'SSE 已连接' : 'SSE 未连接'}
+          {sseConnected ? 'SSE 已连接' : 'SSE 未连接'}
           {runningTasks.length > 0 && ` · ${runningTasks.length} 个运行中任务`}
         </span>
       </div>

@@ -209,6 +209,38 @@ CREATE INDEX IF NOT EXISTS idx_acp_messages_session_id ON acp_messages(session_i
 CREATE INDEX IF NOT EXISTS idx_acp_messages_created_at ON acp_messages(created_at);
 
 -- ----------------------------------------------------------------------
+-- v2.3.0 Phase 0 新增表索引 (orm.py: persona_relations/worker_pools/memory_events/memory_snapshots)
+-- v2.3.1 P0-6: 补齐索引定义, 与 ORM __table_args__ 保持一致
+-- ----------------------------------------------------------------------
+
+-- persona_relations: 唯一约束 (source_id, target_id, relation_type)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_persona_relations_src_tgt_type
+    ON persona_relations(source_id, target_id, relation_type);
+CREATE INDEX IF NOT EXISTS idx_persona_relations_source_id ON persona_relations(source_id);
+CREATE INDEX IF NOT EXISTS idx_persona_relations_target_id ON persona_relations(target_id);
+CREATE INDEX IF NOT EXISTS idx_persona_relations_relation_type ON persona_relations(relation_type);
+
+-- worker_pools: 唯一约束 (persona_id, pool_id)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_worker_pools_persona_pool
+    ON worker_pools(persona_id, pool_id);
+CREATE INDEX IF NOT EXISTS idx_worker_pools_pool_id ON worker_pools(pool_id);
+CREATE INDEX IF NOT EXISTS idx_worker_pools_status ON worker_pools(status);
+
+-- memory_events: seq/event_type/persona_id 三索引 (支持 SSE 断点续传 + 类型筛选 + 角色查询)
+CREATE INDEX IF NOT EXISTS ix_memory_events_seq ON memory_events(seq);
+CREATE INDEX IF NOT EXISTS ix_memory_events_event_type ON memory_events(event_type);
+CREATE INDEX IF NOT EXISTS ix_memory_events_persona_id ON memory_events(persona_id);
+CREATE INDEX IF NOT EXISTS idx_memory_events_memory_id ON memory_events(memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_events_action ON memory_events(action);
+CREATE INDEX IF NOT EXISTS idx_memory_events_created_at ON memory_events(created_at);
+
+-- memory_snapshots: persona_id + created_at 复合索引 (按角色查询历史快照倒序)
+CREATE INDEX IF NOT EXISTS ix_memory_snapshots_persona_created
+    ON memory_snapshots(persona_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_snapshots_snapshot_type ON memory_snapshots(snapshot_type);
+CREATE INDEX IF NOT EXISTS idx_memory_snapshots_created_at ON memory_snapshots(created_at);
+
+-- ----------------------------------------------------------------------
 -- 性能优化说明
 -- ----------------------------------------------------------------------
 -- 1. 主键索引: SQLite 自动为主键创建索引,无需手动定义

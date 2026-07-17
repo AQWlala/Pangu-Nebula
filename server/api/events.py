@@ -148,7 +148,7 @@ async def event_stats(request: Request):
         "ok": True,
         "data": {
             "subscriber_count": bus.subscriber_count(),
-            "last_seq": bus.next_seq(),
+            "last_seq": bus.current_seq(),
         },
         "error": None,
     }

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Text, Integer, Float, Boolean, DateTime, ForeignKey, JSON, func
+from sqlalchemy import String, Text, Integer, Float, Boolean, DateTime, ForeignKey, JSON, func, Index, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -338,6 +338,10 @@ class PersonaRelation(Base):
     """
 
     __tablename__ = "persona_relations"
+    __table_args__ = (
+        # v2.3.1 P0-6: 同一源/目标/类型组合唯一, 避免重复关系
+        UniqueConstraint("source_id", "target_id", "relation_type", name="uq_persona_relations_src_tgt_type"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     source_id: Mapped[int] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"), nullable=False)
@@ -355,6 +359,10 @@ class WorkerPool(Base):
     """
 
     __tablename__ = "worker_pools"
+    __table_args__ = (
+        # v2.3.1 P0-6: 同一 persona 在同一 pool 中唯一, 避免重复注册
+        UniqueConstraint("persona_id", "pool_id", name="uq_worker_pools_persona_pool"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     persona_id: Mapped[int] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"), nullable=False)
@@ -375,6 +383,14 @@ class MemoryEvent(Base):
     """
 
     __tablename__ = "memory_events"
+    __table_args__ = (
+        # v2.3.1 P0-6: seq 索引支持 SSE 断点续传快速定位, 避免 full table scan
+        Index("ix_memory_events_seq", "seq"),
+        # event_type 索引支持按事件类型筛选回放
+        Index("ix_memory_events_event_type", "event_type"),
+        # persona_id 索引支持按角色查询事件流
+        Index("ix_memory_events_persona_id", "persona_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     seq: Mapped[int] = mapped_column(Integer, nullable=False)          # EventBus seq
@@ -397,6 +413,10 @@ class MemorySnapshot(Base):
     """
 
     __tablename__ = "memory_snapshots"
+    __table_args__ = (
+        # v2.3.1 P0-6: persona_id + created_at 复合索引, 支持按角色查询历史快照倒序
+        Index("ix_memory_snapshots_persona_created", "persona_id", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     persona_id: Mapped[int | None] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"))

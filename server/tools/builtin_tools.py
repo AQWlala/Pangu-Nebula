@@ -11,10 +11,20 @@ def _build_path_guard(persona) -> PathGuard:
 
     persona 通过 tool_executor 的 kwargs 注入; 无 persona 或未配置 allowed_paths
     时回退到默认白名单, 保持向后兼容。
+
+    v2.3.1 修复: allowed_paths 在 DB 中为 TEXT (逗号分隔字符串, 见 orm.py),
+    原 `list(allowed)` 会按字符迭代使白名单全部失效。此处按类型分发:
+    - str: 按逗号切分 (DB 路径)
+    - list/tuple: 原样使用 (兼容测试场景)
     """
     allowed = getattr(persona, "allowed_paths", None) if persona is not None else None
     if allowed:
-        return PathGuard(list(allowed))
+        if isinstance(allowed, str):
+            paths = [p.strip() for p in allowed.split(",") if p.strip()]
+        else:
+            paths = list(allowed)
+        if paths:
+            return PathGuard(paths)
     return PathGuard(PathGuard.default_allowed_paths())
 
 

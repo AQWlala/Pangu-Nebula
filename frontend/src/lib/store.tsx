@@ -1,7 +1,14 @@
-// v2.3.0 Phase 0 — 前端统一状态层
+// v2.3.0 Phase 0 — 前端统一状态层 (v2.3.1 修复)
 //
 // Preact Context + useReducer,单一 SSE 连接订阅 /events/stream,
 // dispatch 到 7 类全局 state,替代各组件各自轮询。
+//
+// v2.3.1 修复:
+//   - token 改用 Authorization header (不再暴露在 URL)
+//   - SSE 断点续传: 重连时传 last_seq 查询参数 + 客户端 seq 去重
+//   - SSE 重连指数退避: 5s → 10s → 20s → 60s 上限 + jitter
+//   - useGlobalState 引入 selector 模式 (Object.is 比较跳过更新),
+//     避免全组件树重渲染
 //
 // 7 类全局 state:
 //   1. activePersona:     当前激活角色 + 关联网络
@@ -13,15 +20,17 @@
 //   7. appVersion:        应用版本号 (修复"版本 v..."bug)
 //
 // 用法:
-//   import { useGlobalState } from '../lib/store'
-//   const { state, dispatch } = useGlobalState()
-//   // 读取: state.health.providers
-//   // 派发: dispatch({ type: 'NAVIGATE', page: 'memory' })
+//   import { useGlobalState, useDispatch } from '../lib/store'
+//   const currentPage = useGlobalState(s => s.currentPage)
+//   const dispatch = useDispatch()
+//   dispatch({ type: 'NAVIGATE', page: 'memory' })
 
 import { createContext, h } from 'preact'
-import { useContext, useEffect, useReducer, useRef } from 'preact/hooks'
+import { useContext, useEffect, useLayoutEffect, useReducer, useRef } from 'preact/hooks'
+import { useSyncExternalStore } from 'preact/compat'
 import type { JSX } from 'preact'
 import { isTauri, getHandshake, getApiBase, getAuthToken } from './api'
+import { logger } from './logger'
 
 // =========================================================================
 // 类型定义
@@ -34,7 +43,7 @@ export interface EvolutionLogEntry {
   status?: string
   title?: string
   description?: string
-  detail?: any
+  detail?: Record<string, unknown>
   created_at?: string
   /** 原始事件 seq, 用于去重 */
   seq: number
@@ -81,7 +90,7 @@ export interface MemoryEvent {
   eventType: string
   nodeId?: number
   action?: string
-  payload: any
+  payload: Record<string, unknown>
   timestamp: string
 }
 
@@ -92,7 +101,7 @@ export interface ToolExecution {
   startedAt?: string
   completedAt?: string
   error?: string
-  result?: any
+  result?: Record<string, unknown>
 }
 
 export interface HealthState {
@@ -131,7 +140,7 @@ export type AppAction =
 export interface BusEvent {
   seq: number
   event_type: string
-  payload: any
+  payload: Record<string, unknown>
   source: string
   timestamp: string
 }
@@ -291,6 +300,24 @@ function appReducer(state: AppState, action: AppAction): AppState {
   }
 }
 
+/** 从 payload 中安全读取 string 字段 */
+function pickStr(p: Record<string, unknown>, key: string): string | undefined {
+  const v = p[key]
+  return typeof v === 'string' ? v : undefined
+}
+
+/** 从 payload 中安全读取 number 字段 */
+function pickNum(p: Record<string, unknown>, key: string): number | undefined {
+  const v = p[key]
+  return typeof v === 'number' ? v : undefined
+}
+
+/** 从 payload 中安全读取 boolean 字段 */
+function pickBool(p: Record<string, unknown>, key: string): boolean | undefined {
+  const v = p[key]
+  return typeof v === 'boolean' ? v : undefined
+}
+
 /** 将总线事件路由到具体 state 更新 */
 function dispatchBusEvent(state: AppState, event: BusEvent): AppState {
   const { event_type, payload } = event
@@ -299,8 +326,8 @@ function dispatchBusEvent(state: AppState, event: BusEvent): AppState {
     const memEvent: MemoryEvent = {
       seq: event.seq,
       eventType: event_type,
-      nodeId: payload.node_id,
-      action: payload.action,
+      nodeId: pickNum(payload, 'node_id'),
+      action: pickStr(payload, 'action'),
       payload,
       timestamp: event.timestamp,
     }
@@ -309,13 +336,13 @@ function dispatchBusEvent(state: AppState, event: BusEvent): AppState {
   // evolution.log.appended → evolutionLogs (增量追加, 最新 50 条)
   if (event_type === 'evolution.log.appended') {
     const entry: EvolutionLogEntry = {
-      id: payload.log_id,
-      phase: payload.phase,
-      status: payload.status,
-      title: payload.title,
-      description: payload.description,
-      detail: payload.detail,
-      created_at: payload.created_at || event.timestamp,
+      id: pickNum(payload, 'log_id'),
+      phase: pickStr(payload, 'phase'),
+      status: pickStr(payload, 'status'),
+      title: pickStr(payload, 'title'),
+      description: pickStr(payload, 'description'),
+      detail: payload.detail as Record<string, unknown> | undefined,
+      created_at: pickStr(payload, 'created_at') || event.timestamp,
       seq: event.seq,
     }
     // 去重: 同 log_id / 同 seq 不重复追加
@@ -330,9 +357,11 @@ function dispatchBusEvent(state: AppState, event: BusEvent): AppState {
   }
   // chat.tool.call.* → toolExecutions
   if (event_type === 'chat.tool.call.started') {
+    const callId = pickStr(payload, 'call_id')
+    if (!callId) return state
     const exec: ToolExecution = {
-      callId: payload.call_id,
-      toolName: payload.tool_name,
+      callId,
+      toolName: pickStr(payload, 'tool_name') || '',
       status: 'running',
       startedAt: event.timestamp,
     }
@@ -342,45 +371,52 @@ function dispatchBusEvent(state: AppState, event: BusEvent): AppState {
     }
   }
   if (event_type === 'chat.tool.call.completed') {
-    const existing = state.toolExecutions[payload.call_id]
+    const callId = pickStr(payload, 'call_id')
+    if (!callId) return state
+    const existing = state.toolExecutions[callId]
     if (!existing) return state
     return {
       ...state,
       toolExecutions: {
         ...state.toolExecutions,
-        [payload.call_id]: {
+        [callId]: {
           ...existing,
-          status: payload.success ? 'completed' : 'failed',
+          status: pickBool(payload, 'success') ? 'completed' : 'failed',
           completedAt: event.timestamp,
-          error: payload.error,
-          result: payload.result,
+          error: pickStr(payload, 'error'),
+          result: payload.result as Record<string, unknown> | undefined,
         },
       },
     }
   }
   // swarm.* / dag.* → runningTasks
   if (event_type === 'swarm.created' || event_type === 'swarm.started') {
+    const swarmId = pickNum(payload, 'swarm_id')
+    if (swarmId == null) return state
     const task: RunningTask = {
-      id: `swarm-${payload.swarm_id}`,
+      id: `swarm-${swarmId}`,
       type: 'swarm',
-      title: payload.title || `蜂群 #${payload.swarm_id}`,
+      title: pickStr(payload, 'title') || `蜂群 #${swarmId}`,
       status: 'running',
       startedAt: event.timestamp,
-      personaId: payload.persona_id,
+      personaId: pickNum(payload, 'persona_id'),
     }
+    const dagId = `dag-swarm-${swarmId}`
     return {
       ...state,
       runningTasks: [
         ...state.runningTasks.filter((t) => t.id !== task.id),
         task,
       ],
-      visibleDagIds: state.visibleDagIds.includes(`dag-swarm-${payload.swarm_id}`)
+      visibleDagIds: state.visibleDagIds.includes(dagId)
         ? state.visibleDagIds
-        : [...state.visibleDagIds, `dag-swarm-${payload.swarm_id}`],
+        : [...state.visibleDagIds, dagId],
     }
   }
   if (event_type === 'swarm.completed' || event_type === 'swarm.failed') {
-    const taskId = `swarm-${payload.swarm_id}`
+    const swarmId = pickNum(payload, 'swarm_id')
+    if (swarmId == null) return state
+    const taskId = `swarm-${swarmId}`
     return {
       ...state,
       runningTasks: state.runningTasks.map((t) =>
@@ -390,19 +426,32 @@ function dispatchBusEvent(state: AppState, event: BusEvent): AppState {
       ),
     }
   }
+  // v2.3.1 补全: swarm.cancelled / swarm.interrupted
+  if (event_type === 'swarm.cancelled' || event_type === 'swarm.interrupted') {
+    const swarmId = pickNum(payload, 'swarm_id')
+    if (swarmId == null) return state
+    const taskId = `swarm-${swarmId}`
+    const nextStatus: RunningTask['status'] = event_type === 'swarm.cancelled' ? 'cancelled' : 'interrupted'
+    return {
+      ...state,
+      runningTasks: state.runningTasks.map((t) =>
+        t.id === taskId ? { ...t, status: nextStatus } : t
+      ),
+    }
+  }
   // dag.node.* → runningTasks + visibleDagIds
   // 节点级事件: 确保 DAG 可见,触发 DAGCanvas 刷新
   if (event_type === 'dag.node.started') {
-    const dagId = payload.dag_id
+    const dagId = pickStr(payload, 'dag_id')
     if (!dagId) return state
     const taskId = `dag-${dagId}`
     const task: RunningTask = {
       id: taskId,
       type: 'dag',
-      title: payload.title || `DAG ${dagId}`,
+      title: pickStr(payload, 'title') || `DAG ${dagId}`,
       status: 'running',
       startedAt: event.timestamp,
-      personaId: payload.persona_id,
+      personaId: pickNum(payload, 'persona_id'),
     }
     return {
       ...state,
@@ -416,10 +465,10 @@ function dispatchBusEvent(state: AppState, event: BusEvent): AppState {
     }
   }
   if (event_type === 'dag.node.completed') {
-    const dagId = payload.dag_id
+    const dagId = pickStr(payload, 'dag_id')
     if (!dagId) return state
     // phase=dag_completed 表示整个 DAG 完成,标记任务完成
-    if (payload.phase === 'dag_completed') {
+    if (pickStr(payload, 'phase') === 'dag_completed') {
       const taskId = `dag-${dagId}`
       return {
         ...state,
@@ -431,30 +480,44 @@ function dispatchBusEvent(state: AppState, event: BusEvent): AppState {
     // 节点级完成: 不改任务状态,但产生新引用以触发 DAGCanvas 刷新
     return { ...state, runningTasks: [...state.runningTasks] }
   }
+  // v2.3.1 修复: dag.node.failed 仅更新节点状态, 不将整个 DAG 标记为 failed
+  // 原实现错误地把节点失败等同于 DAG 失败, 导致多节点 DAG 中单节点失败时
+  // 整个 DAG 任务被错误标记为 failed。
+  // 现在: 节点失败只触发 DAGCanvas 刷新 (新引用), 由 DAGCanvas 自行渲染节点颜色
   if (event_type === 'dag.node.failed') {
-    const dagId = payload.dag_id
+    const dagId = pickStr(payload, 'dag_id')
+    if (!dagId) return state
+    return { ...state, runningTasks: [...state.runningTasks] }
+  }
+  // v2.3.1 补全: dag.completed / dag.failed (整个 DAG 级事件)
+  if (event_type === 'dag.completed' || event_type === 'dag.failed') {
+    const dagId = pickStr(payload, 'dag_id')
     if (!dagId) return state
     const taskId = `dag-${dagId}`
+    const nextStatus: RunningTask['status'] = event_type === 'dag.completed' ? 'completed' : 'failed'
     return {
       ...state,
       runningTasks: state.runningTasks.map((t) =>
-        t.id === taskId ? { ...t, status: 'failed' } : t
+        t.id === taskId ? { ...t, status: nextStatus } : t
       ),
+      visibleDagIds: state.visibleDagIds.filter((id) => id !== dagId),
     }
   }
   // health.* → health
   if (event_type === 'health.provider.toggled') {
-    const existing = state.health.providers[payload.provider] || { healthy: true, enabled: true }
+    const provider = pickStr(payload, 'provider')
+    if (!provider) return state
+    const existing = state.health.providers[provider] || { healthy: true, enabled: true }
     return {
       ...state,
       health: {
         ...state.health,
         providers: {
           ...state.health.providers,
-          [payload.provider]: {
+          [provider]: {
             ...existing,
-            healthy: payload.healthy,
-            enabled: payload.enabled !== undefined ? payload.enabled : existing.enabled,
+            healthy: pickBool(payload, 'healthy') ?? existing.healthy,
+            enabled: pickBool(payload, 'enabled') ?? existing.enabled,
             lastCheck: event.timestamp,
           },
         },
@@ -462,38 +525,50 @@ function dispatchBusEvent(state: AppState, event: BusEvent): AppState {
     }
   }
   if (event_type === 'health.check.completed') {
-    return { ...state, health: { ...state.health, ...payload, lastUpdate: event.timestamp } }
+    return { ...state, health: { ...state.health, ...(payload as Partial<HealthState>), lastUpdate: event.timestamp } }
+  }
+  // v2.3.1 补全: health.mcp.toggled / health.skill.toggled
+  if (event_type === 'health.mcp.toggled' || event_type === 'health.skill.toggled') {
+    // 复用 HEALTH_UPDATED 通道, payload 形如 { mcpServers: {...} } / { providers: {...} }
+    return { ...state, health: { ...state.health, ...(payload as Partial<HealthState>), lastUpdate: event.timestamp } }
   }
   // skill.* → skillsMcp
   if (event_type === 'skill.enabled.toggled') {
-    const existing = state.skillsMcp.skills[payload.skill_id] || { enabled: false, source: 'unknown' }
+    const skillId = pickStr(payload, 'skill_id')
+    if (!skillId) return state
+    const existing = state.skillsMcp.skills[skillId] || { enabled: false, source: 'unknown' }
     return {
       ...state,
       skillsMcp: {
         ...state.skillsMcp,
         skills: {
           ...state.skillsMcp.skills,
-          [payload.skill_id]: { ...existing, enabled: payload.enabled },
+          [skillId]: { ...existing, enabled: pickBool(payload, 'enabled') ?? existing.enabled },
         },
       },
     }
   }
   // mcp.* → skillsMcp.mcpServers
   if (event_type === 'mcp.connected') {
+    const serverId = pickStr(payload, 'server_id')
+    if (!serverId) return state
+    const transport = pickStr(payload, 'transport') === 'sse' ? 'sse' : 'stdio'
     return {
       ...state,
       skillsMcp: {
         ...state.skillsMcp,
         mcpServers: {
           ...state.skillsMcp.mcpServers,
-          [payload.server_id]: { connected: true, transport: payload.transport || 'stdio' },
+          [serverId]: { connected: true, transport },
         },
       },
     }
   }
   if (event_type === 'mcp.disconnected') {
+    const serverId = pickStr(payload, 'server_id')
+    if (!serverId) return state
     const next = { ...state.skillsMcp.mcpServers }
-    delete next[payload.server_id]
+    delete next[serverId]
     return { ...state, skillsMcp: { ...state.skillsMcp, mcpServers: next } }
   }
   // 其他事件: 不修改 state (但已被接收)
@@ -501,25 +576,41 @@ function dispatchBusEvent(state: AppState, event: BusEvent): AppState {
 }
 
 // =========================================================================
-// Context
+// 外部 store (供 useSyncExternalStore 订阅)
 // =========================================================================
 
-interface StoreContextValue {
-  state: AppState
-  dispatch: (action: AppAction) => void
+/** 当前最新 state (由 StoreProvider 通过 useLayoutEffect 同步) */
+let currentState: AppState = initialState
+/** 订阅者集合 */
+const listeners = new Set<() => void>()
+
+function emitChange() {
+  for (const l of listeners) l()
 }
 
-const StoreContext = createContext<StoreContextValue>({
-  state: initialState,
-  dispatch: () => {},
-})
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+function getSnapshot(): AppState {
+  return currentState
+}
+
+// =========================================================================
+// Dispatch 单独 Context (永远不变, 不会触发订阅者重渲染)
+// =========================================================================
+
+const DispatchContext = createContext<(action: AppAction) => void>(() => {})
 
 // =========================================================================
 // Provider — 含 SSE 连接逻辑
 // =========================================================================
 
-/** SSE 连接 URL (复用 api.ts 的 token 机制) */
-async function buildSseUrl(patterns: string): Promise<string> {
+/** SSE 连接 URL (token 改用 Authorization header, 不再暴露在 URL) */
+async function buildSseUrl(patterns: string, lastSeq: number): Promise<{ url: string; token: string }> {
   let baseUrl: string
   let token: string
   if (isTauri()) {
@@ -533,15 +624,33 @@ async function buildSseUrl(patterns: string): Promise<string> {
     baseUrl = getApiBase()
     token = getAuthToken()
   }
-  // token 作为查询参数 (EventSource 不支持自定义 header,这里用 fetch+ReadableStream)
-  const tokenParam = token ? `&token=${encodeURIComponent(token)}` : ''
-  return `${baseUrl}/events/stream?patterns=${encodeURIComponent(patterns)}${tokenParam}`
+  // v2.3.1: token 改用 Authorization header, 不再放 URL 查询参数
+  // last_seq 用于断点续传 (后端 /events/stream 支持 last_event_id 查询参数)
+  const lastSeqParam = lastSeq > 0 ? `&last_seq=${lastSeq}` : ''
+  const url = `${baseUrl}/events/stream?patterns=${encodeURIComponent(patterns)}${lastSeqParam}`
+  return { url, token }
+}
+
+/** 指数退避延迟 (5s → 10s → 20s → 40s → 60s 上限) + 随机抖动 */
+function backoffDelay(attempt: number): number {
+  const base = Math.min(5000 * Math.pow(2, attempt), 60000)
+  // jitter: ±20% 随机抖动, 避免大量客户端同时重连
+  const jitter = base * 0.2 * (Math.random() * 2 - 1)
+  return Math.max(1000, base + jitter)
 }
 
 export function StoreProvider({ children }: { children: JSX.Element | JSX.Element[] }) {
   const [state, dispatch] = useReducer(appReducer, initialState)
   const lastSeqRef = useRef<number>(0)
-  const reconnectTimerRef = useRef<any>(null)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectAttemptRef = useRef<number>(0)
+
+  // 同步外部 store: 每次 state 变化后 (commit phase 同步执行) 通知订阅者
+  // 使用 useLayoutEffect 确保订阅者在 paint 前拿到最新 state
+  useLayoutEffect(() => {
+    currentState = state
+    emitChange()
+  }, [state])
 
   useEffect(() => {
     let cancelled = false
@@ -550,18 +659,27 @@ export function StoreProvider({ children }: { children: JSX.Element | JSX.Elemen
     async function connectSSE() {
       try {
         // 订阅全量事件 (前端 reducer 自行路由)
-        const url = await buildSseUrl('*')
+        // v2.3.1: 重连时携带 last_seq 实现断点续传, 避免后端重发所有事件
+        const { url, token } = await buildSseUrl('*', lastSeqRef.current)
         controller = new AbortController()
         dispatch({ type: 'SSE_CONNECTED', connected: false })
+
+        // v2.3.1: token 通过 Authorization header 传递, 不再暴露在 URL
+        const headers: Record<string, string> = { Accept: 'text/event-stream' }
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`
+        }
 
         const res = await fetch(url, {
           method: 'GET',
           signal: controller.signal,
-          headers: { Accept: 'text/event-stream' },
+          headers,
         })
         if (!res.body) throw new Error('无 SSE 响应流')
 
         dispatch({ type: 'SSE_CONNECTED', connected: true })
+        // 连接成功后重置退避计数
+        reconnectAttemptRef.current = 0
 
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
@@ -583,12 +701,14 @@ export function StoreProvider({ children }: { children: JSX.Element | JSX.Elemen
               // 空行 = 事件结束
               try {
                 const event: BusEvent = JSON.parse(currentData)
+                // v2.3.1: 客户端 seq 去重 (双重保险, 即使后端 last_seq 没生效)
+                // 仅处理 seq > lastSeqRef.current 的事件
                 if (event.seq > lastSeqRef.current) {
                   lastSeqRef.current = event.seq
+                  dispatch({ type: 'EVENT_DISPATCH', event })
                 }
-                dispatch({ type: 'EVENT_DISPATCH', event })
               } catch (e) {
-                console.warn('[SSE] 解析事件失败:', e, currentData)
+                logger.warn('[SSE] 解析事件失败:', e, currentData)
               }
               currentData = null
             }
@@ -598,10 +718,12 @@ export function StoreProvider({ children }: { children: JSX.Element | JSX.Elemen
         }
       } catch (e) {
         if (!cancelled) {
-          console.warn('[SSE] 连接失败,5s 后重连:', e)
+          // v2.3.1: 指数退避重连 (5s → 10s → 20s → 60s 上限 + jitter)
+          const attempt = reconnectAttemptRef.current++
+          const delay = backoffDelay(attempt)
+          logger.warn(`[SSE] 连接失败, ${Math.round(delay / 1000)}s 后重连 (attempt=${attempt + 1}):`, e)
           dispatch({ type: 'SSE_CONNECTED', connected: false })
-          // 5s 后重连 (断线降级)
-          reconnectTimerRef.current = setTimeout(connectSSE, 5000)
+          reconnectTimerRef.current = setTimeout(connectSSE, delay)
         }
       }
     }
@@ -618,7 +740,7 @@ export function StoreProvider({ children }: { children: JSX.Element | JSX.Elemen
   // 拉取应用版本号 (修复"版本 v..."bug)
   useEffect(() => {
     import('./api').then(({ apiGet }) => {
-      apiGet<any>('/update/status')
+      apiGet<{ current_version?: string }>('/update/status')
         .then((res) => {
           // 修复: apiGet 已解包,直接读 res.current_version (非 res.data.current_version)
           if (res?.current_version) {
@@ -631,22 +753,70 @@ export function StoreProvider({ children }: { children: JSX.Element | JSX.Elemen
     })
   }, [])
 
-  return h(StoreContext.Provider, { value: { state, dispatch } }, children)
+  return h(DispatchContext.Provider, { value: dispatch }, children)
 }
 
-/** Hook: 获取全局状态 + dispatch */
-export function useGlobalState(): StoreContextValue {
-  return useContext(StoreContext)
+// =========================================================================
+// Hooks
+// =========================================================================
+
+/** Hook: 通过 selector 订阅全局 state
+ *
+ * 方案 C: useSyncExternalStore + Object.is 比较, 仅在 selector 结果变化时触发重渲染。
+ * 调用方示例:
+ *   const currentPage = useGlobalState(s => s.currentPage)
+ *   const tasks = useGlobalState(s => s.runningTasks)
+ */
+export function useGlobalState<T>(selector: (s: AppState) => T): T {
+  // 缓存 selector 引用, 避免 useSyncExternalStore 因依赖变化重建订阅
+  const selectorRef = useRef(selector)
+  selectorRef.current = selector
+
+  // 缓存上次 selector 结果 + 对应的 state 引用,
+  // 防止 useSyncExternalStore 因新引用 (即使值相等) 触发无限重渲染
+  const lastStateRef = useRef<AppState>(currentState)
+  const lastValueRef = useRef<{ v: T } | null>(null)
+  if (lastValueRef.current === null) {
+    lastValueRef.current = { v: selector(currentState) }
+  }
+
+  const getSnap = (): T => {
+    const s = getSnapshot()
+    // state 引用未变: 直接返回缓存的值 (引用稳定, 避免无限循环)
+    if (s === lastStateRef.current) {
+      return lastValueRef.current!.v
+    }
+    // state 变化: 重新计算 selector
+    const next = selectorRef.current(s)
+    // Object.is 比较: 若值相同, 更新 state 引用但保留旧值 (引用稳定)
+    if (Object.is(next, lastValueRef.current!.v)) {
+      lastStateRef.current = s
+      return lastValueRef.current!.v
+    }
+    // 值变化: 更新缓存
+    lastValueRef.current = { v: next }
+    lastStateRef.current = s
+    return next
+  }
+
+  // v2.3.1: preact/compat 的 useSyncExternalStore 类型签名仅接受 2 个参数
+  // (React 的第 3 个 getServerSnapshot 在 Tauri 客户端场景不需要)
+  return useSyncExternalStore(subscribe, getSnap)
+}
+
+/** Hook: 仅获取 dispatch 函数 (稳定引用, 不触发重渲染) */
+export function useDispatch(): (action: AppAction) => void {
+  return useContext(DispatchContext)
 }
 
 /** Hook: 仅获取当前页面 */
 export function useCurrentPage(): [string, (page: string) => void] {
-  const { state, dispatch } = useContext(StoreContext)
-  return [state.currentPage, (page: string) => dispatch({ type: 'NAVIGATE', page })]
+  const currentPage = useGlobalState((s) => s.currentPage)
+  const dispatch = useDispatch()
+  return [currentPage, (page: string) => dispatch({ type: 'NAVIGATE', page })]
 }
 
 /** Hook: 仅获取应用版本号 */
 export function useAppVersion(): string {
-  const { state } = useContext(StoreContext)
-  return state.appVersion
+  return useGlobalState((s) => s.appVersion)
 }

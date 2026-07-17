@@ -3,12 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
 
-from ..core.event_bus import get_event_bus
-from ..db.engine import async_session
-from ..db.orm import Skill as SkillRow
-from ..services.skill_loader import SkillLoader
 from ..services.sandbox_engine import PythonSandbox
 from .models import SandboxExecuteRequest
 from ..services.skill_engine import PromptSkillEngine
@@ -18,70 +13,41 @@ from ..services.skill_package import (
     SkillPackager,
     SkillInstaller,
 )
+# v2.3.1 P0-7: 技能持久化与共享 loader 单例抽取到 skill_persistence
+from ..services.skill_persistence import (
+    loader as _loader,
+    load_enabled_map,
+    persist_skill_enabled,
+    publish_skill_toggled,
+)
 from .models import SkillCreate, SkillUpdate, SkillExecuteRequest, SkillImportMarkdownRequest
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
-_loader = SkillLoader()
 _engine = PromptSkillEngine(_loader)
 _installer = SkillInstaller()
 
 
 # ===== v2.3.0 Phase 3-C: enabled 持久化 + 事件发布 =====
+# v2.3.1 P0-7: 实现已抽取到 server/services/skill_persistence.py (共享模块)
+# 此处保留向后兼容的私有别名, source 参数维持原有差异 (custom / skills_api)
 
 
 async def _load_enabled_map() -> dict[str, bool]:
-    """从 DB 读取所有 Skill 行的 {name: enabled} 映射
-
-    DB 失败时返回空 dict (best-effort, 不阻塞技能列表加载)。
-    """
-    try:
-        async with async_session() as session:
-            rows = (await session.execute(select(SkillRow))).scalars().all()
-            return {row.name: bool(row.enabled) for row in rows}
-    except Exception:
-        logger.debug("加载 Skill.enabled 映射失败 (DB 不可用?)", exc_info=True)
-        return {}
+    """[P0-7 委托] 从 DB 读取 {name: enabled} 映射"""
+    return await load_enabled_map()
 
 
 async def _persist_skill_enabled(name: str, enabled: bool) -> None:
-    """持久化单个技能的 enabled 状态到 DB
-
-    策略: upsert — 按 name 查询, 存在则更新, 不存在则插入新行。
-    DB 失败仅记录日志, 不抛异常 (CRUD 主流程不被阻断)。
-    """
-    try:
-        async with async_session() as session:
-            row = (
-                await session.execute(select(SkillRow).where(SkillRow.name == name))
-            ).scalar_one_or_none()
-            if row is None:
-                # 插入新行 (source/path 仅作占位, 实际由 loader 管理)
-                row = SkillRow(name=name, enabled=enabled, source="custom")
-                session.add(row)
-            else:
-                row.enabled = enabled
-            await session.commit()
-    except Exception:
-        logger.warning("持久化 Skill.enabled 失败 name=%s", name, exc_info=True)
+    """[P0-7 委托] 持久化 enabled (source=custom, 与原实现一致)"""
+    await persist_skill_enabled(name, enabled, source="custom")
 
 
 async def _publish_skill_toggled(name: str, enabled: bool) -> None:
-    """发布 skill.enabled.toggled 事件
-
-    异常不阻断主流程 (事件丢失可由下次全量加载修正)。
-    """
-    try:
-        bus = get_event_bus()
-        await bus.publish(
-            "skill.enabled.toggled",
-            {"skill_id": name, "enabled": enabled},
-            source="skills_api",
-        )
-    except Exception:
-        logger.debug("publish skill.enabled.toggled 失败 name=%s", name, exc_info=True)
+    """[P0-7 委托] 发布 skill.enabled.toggled 事件 (source=skills_api)"""
+    await publish_skill_toggled(name, enabled, source="skills_api")
 
 
 class ImportRequest(BaseModel):

@@ -164,21 +164,36 @@ class WikiService:
 
         # 2. 读取对话、消息、persona
         async with async_session() as session:
+            # v2.3.1 P1-8: 批量查询对话 (单次 IN 查询替代 N 次 session.get)
+            # 原实现按 conv_id_list 逐个 get, N 次往返; 改为 1 次 IN 查询后按入参顺序重排
+            conv_result = await session.execute(
+                select(Conversation).where(Conversation.id.in_(conv_id_list))
+            )
+            conv_by_id: dict[int, Conversation] = {
+                int(c.id): c for c in conv_result.scalars().all()
+            }
             conversations: list[Conversation] = []
             for cid in conv_id_list:
-                conv = await session.get(Conversation, cid)
+                conv = conv_by_id.get(cid)
                 if conv is None:
                     return {"ok": False, "data": None, "error": f"Conversation {cid} not found"}
                 conversations.append(conv)
 
+            # v2.3.1 P1-8: 批量查询消息 (单次 IN 查询替代 N 次 select)
+            # 按 (conversation_id, created_at) 排序保证跨对话顺序稳定
+            msg_result = await session.execute(
+                select(Message)
+                .where(Message.conversation_id.in_(conv_id_list))
+                .order_by(Message.conversation_id, Message.created_at)
+            )
+            # 预构建 {cid: [messages]} 字典, 避免 O(N×M) 遍历过滤
+            msgs_by_cid: dict[int, list[Message]] = {cid: [] for cid in conv_id_list}
+            for m in msg_result.scalars().all():
+                msgs_by_cid.setdefault(int(m.conversation_id), []).append(m)
+            # 按入参顺序展平, 保持与原实现一致的消息拼接顺序
             messages: list[Message] = []
             for cid in conv_id_list:
-                result = await session.execute(
-                    select(Message)
-                    .where(Message.conversation_id == cid)
-                    .order_by(Message.created_at)
-                )
-                messages.extend(result.scalars().all())
+                messages.extend(msgs_by_cid.get(cid, []))
 
             # persona 优先用入参,否则用首个对话的 persona_id
             first_conv = conversations[0]
@@ -203,12 +218,12 @@ class WikiService:
 
         # 3. 构造对话文本并调用 LLM
         # v2.3.0 Phase 3-D: 多对话时为每段对话加标题分隔, 便于 LLM 理解上下文边界
+        # v2.3.1 P1-8: 用 msgs_by_cid 字典查找替代 O(N×M) 列表遍历过滤
         dialogue_lines: list[str] = []
         if len(conversations) > 1:
             for conv, cid in zip(conversations, conv_id_list):
                 dialogue_lines.append(f"=== 对话: {conv.title or f'#{cid}'} ===")
-                conv_msgs = [m for m in messages if m.conversation_id == cid]
-                for m in conv_msgs:
+                for m in msgs_by_cid.get(cid, []):
                     dialogue_lines.append(f"[{m.role}] {m.content}")
                 dialogue_lines.append("")
         else:

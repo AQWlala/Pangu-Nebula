@@ -160,7 +160,8 @@ export default function Dashboard() {
   const [auditsLoading, setAuditsLoading] = useState(true)
 
   // v2.3.0 Phase 3-D: 健康检查全局开关 + 汇总 + 操作状态
-  const { state: globalState } = useGlobalState()
+  // v2.3.1: 改用 selector 模式订阅, 仅订阅 health 切片避免全组件树重渲染
+  const health = useGlobalState((s) => s.health)
   const [globalEnabled, setGlobalEnabled] = useState<boolean>(true)
   const [healthSummary, setHealthSummary] = useState<HealthSummary>({})
   const [monitorStatus, setMonitorStatus] = useState<HealthMonitorStatus>({})
@@ -236,7 +237,7 @@ export default function Dashboard() {
 
   // v2.3.0 Phase 3-D: 监听 SSE 健康事件, 实时合并全局状态到本地展示
   useEffect(() => {
-    const sseHealth = globalState.health
+    const sseHealth = health
     // 全局开关 (SSE 优先)
     if (sseHealth.globalEnabled !== undefined) {
       setGlobalEnabled(sseHealth.globalEnabled)
@@ -258,7 +259,7 @@ export default function Dashboard() {
         })
       )
     }
-  }, [globalState.health])
+  }, [health])
 
   // 加载定时任务
   useEffect(() => {

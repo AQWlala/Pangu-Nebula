@@ -8,6 +8,12 @@ export interface Persona {
   avatar: string
   is_active: boolean
   created_at: string
+  // v2.3.0 A3: 角色三元组 (后端 _persona_to_dict 返回的扩展字段)
+  role?: string | null
+  goal?: string | null
+  backstory?: string | null
+  // 后端可能返回 system_prompt 字段名 (兼容老版本)
+  system_prompt?: string
 }
 
 /** 对话消息 */
@@ -52,7 +58,45 @@ export interface SwarmTask {
   title: string
   status: string
   progress: number
-  subtasks: any[]
+  subtasks: SwarmSubtask[]
+}
+
+/** 蜂群 worker */
+export interface SwarmWorker {
+  id?: number | string
+  swarm_id?: number
+  subtask_id?: number | string
+  persona_id?: number
+  status: string
+  result?: string
+  error?: string
+  started_at?: string
+  completed_at?: string
+}
+
+/** 蜂群子任务 */
+export interface SwarmSubtask {
+  id: number | string
+  title?: string
+  description?: string
+  status?: string
+}
+
+/** 蜂群实体 (后端 /swarm 返回) */
+export interface Swarm {
+  id: number
+  title?: string
+  status: string
+  progress?: number
+  description?: string
+  goal?: string
+  persona_id?: number
+  subtasks?: SwarmSubtask[]
+  workers?: SwarmWorker[]
+  created_at?: string
+  updated_at?: string
+  // v2.3.1 P1-11: 后端完成后写入的聚合结果文本
+  result?: string
 }
 
 /** 渠道配置 */

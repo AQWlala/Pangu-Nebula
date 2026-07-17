@@ -106,13 +106,14 @@ export default function PersonaManager() {
   // 打开编辑表单
   const openEdit = (p: Persona) => {
     setForm({
-      id: (p as any).id,
+      // v2.3.1 P1-11: Persona 接口已扩展 id/role/goal/backstory, 无需 as any
+      id: p.id,
       name: p.name,
       soul: getPersonaSoul(p),
       avatar: getPersonaAvatar(p),
-      role: (p as any).role || '',
-      goal: (p as any).goal || '',
-      backstory: (p as any).backstory || '',
+      role: p.role || '',
+      goal: p.goal || '',
+      backstory: p.backstory || '',
     })
     setShowForm(true)
     setError('')
@@ -156,7 +157,7 @@ export default function PersonaManager() {
 
   // 激活角色
   const handleActivate = async (p: Persona) => {
-    const pid = (p as any).id
+    const pid = p.id
     if (pid === activeId) return
     try {
       await apiPost(`/persona/${pid}/activate`)
@@ -194,7 +195,7 @@ export default function PersonaManager() {
   const handleDelete = async () => {
     if (!deleteTarget) return
     try {
-      await apiDelete(`/persona/${(deleteTarget as any).id}`)
+      await apiDelete(`/persona/${deleteTarget.id}`)
       setDeleteTarget(null)
       await loadData()
     } catch (e: any) {
@@ -226,12 +227,12 @@ export default function PersonaManager() {
     setNewRelationType('complement')
     setNewRelationStrength(0.5)
     setError('')
-    loadRelationsData((p as any).id)
+    loadRelationsData(p.id)
   }
 
   const handleCreateRelation = async (targetId: number, relationType: string, strength: number) => {
     if (!relationsTarget) return
-    const pid = (relationsTarget as any).id
+    const pid = relationsTarget.id
     try {
       await apiPost(`/persona/${pid}/relations`, {
         target_id: targetId,
@@ -247,7 +248,7 @@ export default function PersonaManager() {
 
   const handleDeleteRelation = async (relationId: number) => {
     if (!relationsTarget) return
-    const pid = (relationsTarget as any).id
+    const pid = relationsTarget.id
     try {
       await apiDelete(`/persona/relations/${relationId}`)
       await loadRelationsData(pid)
@@ -350,7 +351,7 @@ export default function PersonaManager() {
         // 角色卡片网格
         <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
           {personas.map(p => {
-            const pid = (p as any).id
+            const pid = p.id
             const isActive = pid === activeId
             return (
               <div
@@ -413,7 +414,7 @@ export default function PersonaManager() {
                 </h3>
 
                 {/* 角色定位 (v2.3.0 A3) */}
-                {(p as any).role && (
+                {p.role && (
                   <div style={{ marginBottom: '6px' }}>
                     <span
                       style={{
@@ -425,7 +426,7 @@ export default function PersonaManager() {
                         fontSize: 'var(--font-xs)',
                       }}
                     >
-                      🎯 {(p as any).role}
+                      🎯 {p.role}
                     </span>
                   </div>
                 )}
@@ -501,6 +502,9 @@ export default function PersonaManager() {
           onClick={() => setShowForm(false)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="角色表单"
             className="flex flex-col"
             style={{
               width: '90%',
@@ -815,6 +819,9 @@ export default function PersonaManager() {
           onClick={() => setRelationsTarget(null)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="关联角色管理"
             className="flex flex-col"
             style={{
               width: '90%',
@@ -1051,10 +1058,10 @@ export default function PersonaManager() {
                       >
                         <option value="">选择目标角色...</option>
                         {personas
-                          .filter(p => (p as any).id !== (relationsTarget as any).id)
+                          .filter(p => p.id !== relationsTarget.id)
                           .map(p => (
-                            <option key={(p as any).id} value={(p as any).id}>
-                              {p.name}{(p as any).role ? ` · ${(p as any).role}` : ''}
+                            <option key={p.id} value={p.id}>
+                              {p.name}{p.role ? ` · ${p.role}` : ''}
                             </option>
                           ))}
                       </select>
@@ -1167,6 +1174,9 @@ export default function PersonaManager() {
           onClick={() => setDeleteTarget(null)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="删除角色确认"
             style={{
               width: '90%',
               maxWidth: '400px',

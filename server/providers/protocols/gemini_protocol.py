@@ -210,6 +210,7 @@ class GeminiProtocol(ProtocolBase):
     async def stream(
         self, messages: list[Message], model: str, **kwargs
     ) -> AsyncIterator[StreamChunk]:
+        """v2.3.1: 捕获 HTTPStatusError 后 yield error chunk, 保持多模态 fallback 一致"""
         if not self.api_key:
             yield StreamChunk(text=self._mock_generate(messages), finish_reason="mock")
             return
@@ -218,21 +219,54 @@ class GeminiProtocol(ProtocolBase):
         payload = self._build_payload(effective_messages, model, kwargs)
         url = self._stream_url(model)
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
-            async with client.stream(
-                "POST",
-                url,
-                headers=self._headers(),
-                json=payload,
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    chunk = self._parse_sse_chunk(line)
-                    # v2.3.0 Phase 3-A1: 修复原 `and chunk.text` 过滤 bug
-                    # (会丢弃 finish 块和纯 reasoning 块)。yield 所有非 None chunk,
-                    # 即使 text 为空 (只要有 finish_reason / reasoning 元数据)。
-                    if chunk is not None:
-                        yield chunk
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+                async with client.stream(
+                    "POST",
+                    url,
+                    headers=self._headers(),
+                    json=payload,
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        chunk = self._parse_sse_chunk(line)
+                        # v2.3.0 Phase 3-A1: 修复原 `and chunk.text` 过滤 bug
+                        # (会丢弃 finish 块和纯 reasoning 块)。yield 所有非 None chunk,
+                        # 即使 text 为空 (只要有 finish_reason / reasoning 元数据)。
+                        if chunk is not None:
+                            yield chunk
+        except httpx.HTTPStatusError as exc:
+            # v2.3.1: 多模态 fallback (与 generate() 一致) — 含图片时剥离重试一次
+            if self._messages_have_images(effective_messages):
+                stripped = self._strip_images(effective_messages)
+                retry_payload = self._build_payload(stripped, model, kwargs)
+                try:
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+                        async with client.stream(
+                            "POST",
+                            url,
+                            headers=self._headers(),
+                            json=retry_payload,
+                        ) as response:
+                            response.raise_for_status()
+                            async for line in response.aiter_lines():
+                                chunk = self._parse_sse_chunk(line)
+                                if chunk is not None:
+                                    yield chunk
+                    return
+                except httpx.HTTPStatusError as retry_exc:
+                    yield StreamChunk(
+                        text=f"[stream error] {retry_exc}",
+                        finish_reason="error",
+                        raw={"error": str(retry_exc)},
+                    )
+                    return
+            # 无图片: yield error chunk (不 re-raise)
+            yield StreamChunk(
+                text=f"[stream error] {exc}",
+                finish_reason="error",
+                raw={"error": str(exc)},
+            )
 
     # ---- 嵌入 ----
 

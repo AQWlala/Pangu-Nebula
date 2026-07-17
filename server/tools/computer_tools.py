@@ -54,6 +54,15 @@ _SCREENSHOT_MAX_HEIGHT = 768
 _SCREENSHOT_JPEG_QUALITY = 85
 
 
+def _is_cancelled(cancel_token) -> bool:
+    """v2.3.1 P0-6: 检查协作式取消令牌是否被设置。
+
+    cancel_token 由 tool_executor 注入 (threading.Event), 超时后 set。
+    返回 True 表示已取消, 工具应尽快返回。
+    """
+    return cancel_token is not None and cancel_token.is_set()
+
+
 def _check_text_safety(text: str) -> tuple[bool, str]:
     """检查 type_text 的文本是否安全
 
@@ -93,10 +102,17 @@ class ComputerScreenshotTool(BaseTool):
     allowed_kwargs: set[str] = set()
 
     async def execute(self, **kwargs) -> ToolResult:
+        # v2.3.1 P0-6: 协作式取消 — cancel_token 由 tool_executor 注入
+        cancel_token = kwargs.get("cancel_token")
+        if _is_cancelled(cancel_token):
+            return ToolResult(success=False, output="", error="操作已取消")
         ok, err = _check_dependencies()
         if not ok:
             return ToolResult(success=False, output="", error=err)
         try:
+            # v2.3.1 P0-6: 进入线程前再次检查取消 (cooperative cancellation)
+            if _is_cancelled(cancel_token):
+                return ToolResult(success=False, output="", error="操作已取消")
             # v2.3.0 Phase 3-A1: 同步阻塞调用 (pyautogui + PIL) 包入 asyncio.to_thread
             # 避免阻塞事件循环 (截图 + 压缩可能耗时数百毫秒)
             img_w, img_h, img_b64 = await asyncio.to_thread(self._capture_and_compress)
@@ -155,12 +171,19 @@ class ComputerClickTool(BaseTool):
     allowed_kwargs: set[str] = {"x", "y", "button"}
 
     async def execute(self, x: int, y: int, button: str = "left", **kwargs) -> ToolResult:
+        # v2.3.1 P0-6: 协作式取消
+        cancel_token = kwargs.get("cancel_token")
+        if _is_cancelled(cancel_token):
+            return ToolResult(success=False, output="", error="操作已取消")
         ok, err = _check_dependencies()
         if not ok:
             return ToolResult(success=False, output="", error=err)
         try:
             import pyautogui  # type: ignore
 
+            # v2.3.1 P0-6: 进入线程前再次检查取消
+            if _is_cancelled(cancel_token):
+                return ToolResult(success=False, output="", error="操作已取消")
             # v2.3.0 Phase 3-A1: pyautogui.click 是同步阻塞调用,包入 asyncio.to_thread
             await asyncio.to_thread(pyautogui.click, x=x, y=y, button=button)
             return ToolResult(
@@ -194,6 +217,10 @@ class ComputerTypeTextTool(BaseTool):
     allowed_kwargs: set[str] = {"text", "interval"}
 
     async def execute(self, text: str, interval: float = 0.0, **kwargs) -> ToolResult:
+        # v2.3.1 P0-6: 协作式取消
+        cancel_token = kwargs.get("cancel_token")
+        if _is_cancelled(cancel_token):
+            return ToolResult(success=False, output="", error="操作已取消")
         ok, err = _check_dependencies()
         if not ok:
             return ToolResult(success=False, output="", error=err)
@@ -205,6 +232,10 @@ class ComputerTypeTextTool(BaseTool):
 
         try:
             import pyautogui as pa  # type: ignore
+
+            # v2.3.1 P0-6: 进入线程前再次检查取消
+            if _is_cancelled(cancel_token):
+                return ToolResult(success=False, output="", error="操作已取消")
 
             # v2.2.1 P3: CJK 输入支持 — pyautogui.typewrite 仅支持 ASCII,
             # 非 ASCII 字符(中/日/韩等)需通过剪贴板粘贴
@@ -269,6 +300,10 @@ class ComputerGetA11yTreeTool(BaseTool):
     allowed_kwargs: set[str] = {"max_depth"}
 
     async def execute(self, max_depth: int = 5, **kwargs) -> ToolResult:
+        # v2.3.1 P0-6: 协作式取消
+        cancel_token = kwargs.get("cancel_token")
+        if _is_cancelled(cancel_token):
+            return ToolResult(success=False, output="", error="操作已取消")
         try:
             import uiautomation as ua  # type: ignore
         except ImportError:
@@ -279,23 +314,34 @@ class ComputerGetA11yTreeTool(BaseTool):
             )
 
         try:
+            # v2.3.1 P0-6: 进入线程前再次检查取消
+            if _is_cancelled(cancel_token):
+                return ToolResult(success=False, output="", error="操作已取消")
             # v2.3.0 Phase 3-A1: uiautomation 遍历是同步阻塞 (且可能很慢),
             # 包入 asyncio.to_thread 避免阻塞事件循环
-            output_text = await asyncio.to_thread(self._build_a11y_output, ua, max_depth)
+            # v2.3.1 P0-6: cancel_token 传入线程, _walk_a11y 栈循环中检查
+            output_text = await asyncio.to_thread(
+                self._build_a11y_output, ua, max_depth, cancel_token
+            )
+            # 线程返回后若已取消, 标记为取消 (避免使用部分结果误导 LLM)
+            if _is_cancelled(cancel_token):
+                return ToolResult(success=False, output="", error="操作已取消 (无障碍树遍历被中断)")
             return ToolResult(success=True, output=output_text)
         except Exception as exc:
             return ToolResult(success=False, output="", error=f"获取无障碍树失败: {exc}")
 
-    def _build_a11y_output(self, ua_module, max_depth: int) -> str:
+    def _build_a11y_output(self, ua_module, max_depth: int, cancel_token=None) -> str:
         """同步: 获取根控件 + 遍历 + 序列化。在线程中执行避免阻塞事件循环。"""
         import json
         root = ua_module.GetRootControl()
-        tree = self._walk_a11y(root, depth=0, max_depth=max_depth)
+        tree = self._walk_a11y(root, depth=0, max_depth=max_depth, cancel_token=cancel_token)
         return f"无障碍树 (深度 {max_depth}):\n{json.dumps(tree, ensure_ascii=False, indent=2)[:2000]}"
 
     @staticmethod
-    def _walk_a11y(control, depth: int, max_depth: int) -> dict:
+    def _walk_a11y(control, depth: int, max_depth: int, cancel_token=None) -> dict:
         """v2.2.1 P2: 迭代式遍历无障碍树,用栈替代递归,防止深层 UI 树栈溢出。
+
+        v2.3.1 P0-6: 栈循环中检查 cancel_token, 协作式退出耗时遍历。
 
         返回结构与原递归实现一致: 嵌套 dict 树,节点含
         name/control_type/class_name/depth/children (仅当有子节点时)。
@@ -310,6 +356,9 @@ class ComputerGetA11yTreeTool(BaseTool):
         # 栈元素: (control, parent_node, node_depth) — 用栈替代递归
         stack: list[tuple] = [(control, root_node, depth)]
         while stack:
+            # v2.3.1 P0-6: 协作式取消 — 在每次栈迭代前检查
+            if _is_cancelled(cancel_token):
+                break
             ctrl, node, cur_depth = stack.pop()
             if cur_depth >= max_depth:
                 continue

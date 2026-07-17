@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'preact/hooks'
 import { apiGet, apiPost, apiStream } from '../lib/api'
+// v2.3.1 P1-11: 引入 Swarm 接口替代 any
+import type { Swarm } from '../lib/types'
 
 // ===== 工具函数 =====
 
@@ -414,7 +416,8 @@ export default function SwarmProgress() {
 
 // ===== 蜂群任务卡片子组件 =====
 
-function SwarmTaskCard({ swarm, expanded, onToggle }: { swarm: any; expanded: boolean; onToggle: () => void }) {
+// v2.3.1 P1-11: swarm 参数从 any 改为 Swarm 接口
+function SwarmTaskCard({ swarm, expanded, onToggle }: { swarm: Swarm; expanded: boolean; onToggle: () => void }) {
   const status = swarm?.status || 'pending'
   const statusInfo = getStatusInfo(status)
   const progress = getSwarmProgress(swarm)

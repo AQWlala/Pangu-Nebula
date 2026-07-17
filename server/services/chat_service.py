@@ -1,6 +1,7 @@
 import json
 import logging
-from typing import AsyncIterator
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator
 
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
@@ -24,6 +25,37 @@ MAX_TOOL_ROUNDS = 10
 # v2.2.1 S2: 工具结果截断 — 防止 token 爆炸
 # 业务专家反: 截断可能丢失关键工具输出 → 应对方案: 截断长度可配置,保留首尾各 1000 字符
 _MAX_TOOL_RESULT_CHARS = 2000  # 可配置: 工具结果回喂 LLM 的最大字符数
+
+
+# v2.3.1 P1-9: stream_reply 拆分后的上下文容器
+# 贯穿 _prepare_context → _stream_llm_round → _execute_tool_calls → _finalize,
+# 替代原先 361 行单方法中散落的局部变量, 让每个阶段职责单一可测。
+@dataclass
+class _StreamCtx:
+    """stream_reply 内部上下文 (不暴露为公开 API)"""
+
+    conversation_id: int
+    user_content: str
+    persona: Any  # Persona 或 _DEFAULT_PERSONA
+    system_prompt: str
+    model_provider: str | None
+    model_name: str | None
+    temperature: float | None
+    max_tokens: int | None
+    user_msg_id: int | None
+    provider_messages: list  # list[ProviderMessage]
+    rag_sources: list = field(default_factory=list)
+    rag_error: str = ""
+    tools_schema: list | None = None
+    # 跨轮次累积
+    full_response: str = ""
+    full_reasoning: str = ""
+    last_tool_calls_json: str | None = None
+    persona_id: int | None = None
+    # 单轮临时状态 (由 _stream_llm_round 写入, stream_reply 主循环读取)
+    last_round_text: str = ""
+    last_tool_calls_list: list = field(default_factory=list)
+    last_finish_reason: str | None = None
 
 
 def _truncate_tool_result(content, max_chars: int = _MAX_TOOL_RESULT_CHARS):
@@ -122,6 +154,114 @@ class ChatService:
     async def stream_reply(
         self, conversation_id: int, user_content: str
     ) -> AsyncIterator[dict]:
+        """v2.3.1 P1-9: 拆分为 _prepare_context / _stream_llm_round / _execute_tool_calls / _finalize
+
+        本方法仅做协调: 加载上下文 → 校验 provider → 循环 (流式 + 工具) → 收尾持久化。
+        每个阶段的细节委托给对应的私有方法, 外部行为 (yield 事件序列) 与原实现一致。
+        """
+        # 1. 准备上下文 (加载对话/persona/历史, RAG 检索, 构建 provider_messages)
+        ctx, rag_events = await self._prepare_context(conversation_id, user_content)
+        for ev in rag_events:
+            yield ev
+
+        # 2. 校验 model_provider
+        if not ctx.model_provider:
+            yield {
+                "type": "error",
+                "error": "尚未配置模型 Provider，请在「设置」中添加 API Key 后，在「角色管理」创建并激活角色",
+            }
+            return
+
+        try:
+            provider = get_provider(ctx.model_provider)
+        except ValueError as exc:
+            yield {"type": "error", "error": str(exc)}
+            return
+
+        event_bus = self._get_event_bus()
+
+        # 3. 工具调用循环 (流式接收 LLM 响应 → 执行工具 → 回喂 → 下一轮)
+        try:
+            rounds = 0
+            while True:
+                rounds += 1
+                if rounds > MAX_TOOL_ROUNDS:
+                    yield {
+                        "type": "error",
+                        "error": f"工具调用超过最大轮次 ({MAX_TOOL_ROUNDS}),已中止以防死循环",
+                    }
+                    break
+
+                # 3a. 单轮流式接收
+                async for ev in self._stream_llm_round(ctx, provider):
+                    yield ev
+
+                tool_calls_list = ctx.last_tool_calls_list
+                finish_reason = ctx.last_finish_reason
+
+                # v2.2.1 S4: finish_reason 兼容判断
+                # 部分 provider 返回 tool_calls 时 finish_reason 可能为 None,
+                # 仅在 tool_calls 为空或 finish_reason 明确不是 "tool_calls" 时才 break。
+                if not tool_calls_list:
+                    break
+                if finish_reason is not None and finish_reason != "tool_calls":
+                    break
+                # tool_calls_list 非空且 (finish_reason is None 或 == "tool_calls") → 继续执行工具
+
+                # 3b. assistant 工具调用消息回填 history
+                ctx.last_tool_calls_json = json.dumps(
+                    tool_calls_list, ensure_ascii=False
+                )
+                ctx.provider_messages.append(
+                    ProviderMessage(
+                        role="assistant",
+                        content=ctx.last_round_text or None,
+                        tool_calls=tool_calls_list,
+                    )
+                )
+
+                # 3c. 执行工具并回喂
+                async for ev in self._execute_tool_calls(
+                    ctx, tool_calls_list, event_bus
+                ):
+                    yield ev
+                # 继续下一轮,让 LLM 基于工具结果生成
+        except Exception as exc:
+            yield {"type": "error", "error": str(exc)}
+            # 仍保存已生成内容,避免丢失
+            if ctx.full_response:
+                # v2.3.1 P0-4: DB 失败时 yield error event 而非让 SSE 流异常终止
+                try:
+                    await self._persist_assistant(
+                        ctx.conversation_id,
+                        ctx.full_response,
+                        ctx.last_tool_calls_json,
+                    )
+                except Exception as persist_exc:
+                    logger.error(
+                        "persist assistant failed in error branch: %s",
+                        persist_exc,
+                        exc_info=True,
+                    )
+                    yield {
+                        "type": "error",
+                        "error": f"保存助手消息失败: {persist_exc}",
+                    }
+            return
+
+        # 4. 收尾: 持久化 + L1 记忆 + publish 完成 + yield done
+        async for ev in self._finalize(ctx):
+            yield ev
+
+    async def _prepare_context(
+        self, conversation_id: int, user_content: str
+    ) -> tuple[_StreamCtx, list[dict]]:
+        """v2.3.1 P1-9: 加载对话/persona/历史, 创建 user_msg, RAG 检索, 构建 provider_messages
+
+        Returns:
+            (ctx, rag_events): ctx 为后续阶段所需的上下文; rag_events 为 RAG 相关的 yield 事件
+            (由调用方在 session 关闭后 yield, 保持与原实现的顺序一致)。
+        """
         async with async_session() as session:
             result = await session.execute(
                 select(Conversation)
@@ -130,8 +270,19 @@ class ChatService:
             )
             conv = result.scalar_one_or_none()
             if conv is None:
-                yield {"type": "error", "error": "Conversation not found"}
-                return
+                # 用哨兵 ctx 表示 "对话不存在", 调用方 yield error 后 return
+                return _StreamCtx(
+                    conversation_id=conversation_id,
+                    user_content=user_content,
+                    persona=None,
+                    system_prompt="",
+                    model_provider=None,
+                    model_name=None,
+                    temperature=None,
+                    max_tokens=None,
+                    user_msg_id=None,
+                    provider_messages=[],
+                ), [{"type": "error", "error": "Conversation not found"}]
 
             persona = conv.persona
             if persona is None:
@@ -211,8 +362,9 @@ class ChatService:
 
         # v2.2.0 Phase 4: 注入 RAG 上下文到 system prompt
         # v2.2.1 S9: RAG 异常不再静默 — 通知用户 RAG 不可用,并继续对话
+        rag_events: list[dict] = []
         if rag_error:
-            yield {"type": "rag_context", "sources": [], "error": rag_error}
+            rag_events.append({"type": "rag_context", "sources": [], "error": rag_error})
         elif rag_context_text:
             # 在 system message 后插入独立的 RAG 上下文 message,避免污染原 system prompt
             rag_msg = ProviderMessage(role="system", content=rag_context_text)
@@ -224,228 +376,227 @@ class ChatService:
                     insert_idx = i + 1
             provider_messages.insert(insert_idx, rag_msg)
             # 通知前端展示了哪些 RAG 来源
-            yield {"type": "rag_context", "sources": rag_sources}
-
-        if not model_provider:
-            yield {
-                "type": "error",
-                "error": "尚未配置模型 Provider，请在「设置」中添加 API Key 后，在「角色管理」创建并激活角色",
-            }
-            return
-
-        try:
-            provider = get_provider(model_provider)
-        except ValueError as exc:
-            yield {"type": "error", "error": str(exc)}
-            return
+            rag_events.append({"type": "rag_context", "sources": rag_sources})
 
         # v2.2.0: 工具调用开关与 schema
         tools_enabled = bool(getattr(persona, "tools_enabled", False))
         tools_schema = list_tools_schema() if tools_enabled else None
 
-        full_response = ""
-        # v2.3.0 Phase 3-A1: 累积完整推理过程文本 (跨轮次)
-        full_reasoning = ""
-        last_tool_calls_json: str | None = None  # 最近一轮工具调用,用于持久化
-        event_bus = self._get_event_bus()
-        persona_id = getattr(persona, "id", None)
-
-        try:
-            rounds = 0
-            while True:
-                rounds += 1
-                if rounds > MAX_TOOL_ROUNDS:
-                    yield {
-                        "type": "error",
-                        "error": f"工具调用超过最大轮次 ({MAX_TOOL_ROUNDS}),已中止以防死循环",
-                    }
-                    break
-
-                round_text = ""
-                # index -> {"id","name","arguments"} 累计流式 tool_calls 增量
-                acc_tool_calls: dict[int, dict] = {}
-                finish_reason = None
-
-                stream_kwargs: dict = {
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                }
-                if tools_schema:
-                    stream_kwargs["tools"] = tools_schema
-
-                async for chunk in provider.stream(
-                    provider_messages, model_name, **stream_kwargs
-                ):
-                    # v2.3.0 Phase 3-A1: 推理过程 yield 分支
-                    # 当 chunk.reasoning 非空时, yield 一个 reasoning 块,
-                    # 同时累积到完整 reasoning 文本 (供 L1 记忆使用)。
-                    if chunk.reasoning:
-                        full_reasoning += chunk.reasoning
-                        yield {
-                            "type": "reasoning",
-                            "content": chunk.reasoning,
-                            "phase": chunk.reasoning_phase,
-                        }
-                    if chunk.text:
-                        round_text += chunk.text
-                        full_response += chunk.text
-                        yield {"type": "token", "content": chunk.text}
-                    if chunk.tool_calls:
-                        for tc in chunk.tool_calls:
-                            idx = tc.get("index", 0)
-                            acc = acc_tool_calls.setdefault(
-                                idx, {"id": "", "name": "", "arguments": ""}
-                            )
-                            if tc.get("id"):
-                                acc["id"] = tc["id"]
-                            fn = tc.get("function") or {}
-                            if fn.get("name"):
-                                acc["name"] = (acc["name"] or "") + fn["name"]
-                            if fn.get("arguments"):
-                                acc["arguments"] += fn["arguments"]
-                    if chunk.finish_reason:
-                        finish_reason = chunk.finish_reason
-
-                # 累计出本轮工具调用列表
-                tool_calls_list = [
-                    {
-                        "id": acc_tool_calls[i]["id"] or f"call_{i}",
-                        "type": "function",
-                        "function": {
-                            "name": acc_tool_calls[i]["name"],
-                            "arguments": acc_tool_calls[i]["arguments"],
-                        },
-                    }
-                    for i in sorted(acc_tool_calls)
-                    if acc_tool_calls[i]["name"]
-                ]
-
-                # v2.2.1 S4: finish_reason 兼容判断
-                # 部分 provider 返回 tool_calls 时 finish_reason 可能为 None,
-                # 仅在 tool_calls 为空或 finish_reason 明确不是 "tool_calls" 时才 break。
-                if not tool_calls_list:
-                    break
-                if finish_reason is not None and finish_reason != "tool_calls":
-                    # 明确不是 tool_calls 时才 break
-                    break
-                # tool_calls_list 非空且 (finish_reason is None 或 finish_reason == "tool_calls") 时继续执行工具
-
-                # 有工具调用 → 执行并回喂
-                last_tool_calls_json = json.dumps(tool_calls_list, ensure_ascii=False)
-
-                # 1. assistant 工具调用消息回填 history
-                provider_messages.append(
-                    ProviderMessage(
-                        role="assistant",
-                        content=round_text or None,
-                        tool_calls=tool_calls_list,
-                    )
-                )
-
-                # 2. 逐个执行工具 (ToolExecutor 接管权限检查/注入防护/审计记录)
-                for tc in tool_calls_list:
-                    tool_name = tc["function"]["name"]
-                    raw_args = tc["function"]["arguments"]
-                    try:
-                        args = json.loads(raw_args) if raw_args else {}
-                    except json.JSONDecodeError:
-                        args = {}
-
-                    yield {
-                        "type": "tool_call",
-                        "id": tc["id"],
-                        "name": tool_name,
-                        "arguments": args,
-                    }
-
-                    # v2.3.0 Phase 3-A1: publish chat.tool.call.started
-                    try:
-                        await event_bus.publish(
-                            "chat.tool.call.started",
-                            {"call_id": tc["id"], "tool_name": tool_name},
-                            source="chat_service",
-                        )
-                    except Exception as ev_exc:
-                        logger.warning("publish chat.tool.call.started failed: %s", ev_exc)
-
-                    exec_result = await tool_executor.execute(
-                        tool_name, args, persona
-                    )
-                    # 回喂 LLM 的文本: 优先 output, 其次 error
-                    result_text = exec_result["output"] or exec_result["error"]
-                    success = exec_result["success"]
-
-                    # v2.3.0 Phase 3-A1: publish chat.tool.call.completed
-                    try:
-                        await event_bus.publish(
-                            "chat.tool.call.completed",
-                            {
-                                "call_id": tc["id"],
-                                "tool_name": tool_name,
-                                "success": success,
-                                "result": result_text,
-                                "error": exec_result.get("error", ""),
-                            },
-                            source="chat_service",
-                        )
-                    except Exception as ev_exc:
-                        logger.warning("publish chat.tool.call.completed failed: %s", ev_exc)
-
-                    yield {
-                        "type": "tool_result",
-                        "id": tc["id"],
-                        "name": tool_name,
-                        "result": result_text,
-                        "success": success,
-                    }
-
-                    # v2.2.1 S2: 回喂 LLM 前截断工具结果,防止 provider_messages 累积导致 token 爆炸
-                    # 注意: 仅截断回喂 LLM 的 content,前端 yield 仍用原始 result_text
-                    truncated_result = _truncate_tool_result(result_text)
-                    provider_messages.append(
-                        ProviderMessage(
-                            role="tool",
-                            content=truncated_result,
-                            tool_call_id=tc["id"],
-                        )
-                    )
-                # 继续下一轮,让 LLM 基于工具结果生成
-        except Exception as exc:
-            yield {"type": "error", "error": str(exc)}
-            # 仍保存已生成内容,避免丢失
-            if full_response:
-                await self._persist_assistant(
-                    conversation_id, full_response, last_tool_calls_json
-                )
-            return
-
-        # 持久化 assistant 消息
-        msg_id = await self._persist_assistant(
-            conversation_id, full_response, last_tool_calls_json
+        ctx = _StreamCtx(
+            conversation_id=conversation_id,
+            user_content=user_content,
+            persona=persona,
+            system_prompt=system_prompt,
+            model_provider=model_provider,
+            model_name=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            user_msg_id=user_msg_id,
+            provider_messages=provider_messages,
+            rag_sources=rag_sources,
+            rag_error=rag_error,
+            tools_schema=tools_schema,
+            persona_id=getattr(persona, "id", None),
         )
+        return ctx, rag_events
+
+    async def _stream_llm_round(
+        self, ctx: _StreamCtx, provider: Any
+    ) -> AsyncIterator[dict]:
+        """v2.3.1 P1-9: 单轮 LLM 流式接收
+
+        yield reasoning/token 事件; 更新 ctx.full_response / ctx.full_reasoning /
+        ctx.last_round_text / ctx.last_tool_calls_list / ctx.last_finish_reason。
+        """
+        round_text = ""
+        # index -> {"id","name","arguments"} 累计流式 tool_calls 增量
+        acc_tool_calls: dict[int, dict] = {}
+        finish_reason = None
+
+        stream_kwargs: dict = {
+            "temperature": ctx.temperature,
+            "max_tokens": ctx.max_tokens,
+        }
+        if ctx.tools_schema:
+            stream_kwargs["tools"] = ctx.tools_schema
+
+        async for chunk in provider.stream(
+            ctx.provider_messages, ctx.model_name, **stream_kwargs
+        ):
+            # v2.3.0 Phase 3-A1: 推理过程 yield 分支
+            if chunk.reasoning:
+                ctx.full_reasoning += chunk.reasoning
+                yield {
+                    "type": "reasoning",
+                    "content": chunk.reasoning,
+                    "phase": chunk.reasoning_phase,
+                }
+            if chunk.text:
+                round_text += chunk.text
+                ctx.full_response += chunk.text
+                yield {"type": "token", "content": chunk.text}
+            if chunk.tool_calls:
+                for tc in chunk.tool_calls:
+                    idx = tc.get("index", 0)
+                    acc = acc_tool_calls.setdefault(
+                        idx, {"id": "", "name": "", "arguments": ""}
+                    )
+                    if tc.get("id"):
+                        acc["id"] = tc["id"]
+                    fn = tc.get("function") or {}
+                    if fn.get("name"):
+                        acc["name"] = (acc["name"] or "") + fn["name"]
+                    if fn.get("arguments"):
+                        acc["arguments"] += fn["arguments"]
+            if chunk.finish_reason:
+                finish_reason = chunk.finish_reason
+
+        # 累计出本轮工具调用列表
+        tool_calls_list = [
+            {
+                "id": acc_tool_calls[i]["id"] or f"call_{i}",
+                "type": "function",
+                "function": {
+                    "name": acc_tool_calls[i]["name"],
+                    "arguments": acc_tool_calls[i]["arguments"],
+                },
+            }
+            for i in sorted(acc_tool_calls)
+            if acc_tool_calls[i]["name"]
+        ]
+
+        # 写回 ctx 供 stream_reply 主循环读取
+        ctx.last_round_text = round_text
+        ctx.last_tool_calls_list = tool_calls_list
+        ctx.last_finish_reason = finish_reason
+
+    async def _execute_tool_calls(
+        self,
+        ctx: _StreamCtx,
+        tool_calls_list: list,
+        event_bus: Any,
+    ) -> AsyncIterator[dict]:
+        """v2.3.1 P1-9: 逐个执行工具调用并回喂 LLM
+
+        yield tool_call/tool_result 事件; 更新 ctx.provider_messages (追加 tool 消息) /
+        ctx.last_tool_calls_json (已由调用方设置)。
+        """
+        for tc in tool_calls_list:
+            tool_name = tc["function"]["name"]
+            raw_args = tc["function"]["arguments"]
+            try:
+                args = json.loads(raw_args) if raw_args else {}
+            except json.JSONDecodeError:
+                args = {}
+
+            yield {
+                "type": "tool_call",
+                "id": tc["id"],
+                "name": tool_name,
+                "arguments": args,
+            }
+
+            # v2.3.0 Phase 3-A1: publish chat.tool.call.started
+            try:
+                await event_bus.publish(
+                    "chat.tool.call.started",
+                    {"call_id": tc["id"], "tool_name": tool_name},
+                    source="chat_service",
+                )
+            except Exception as ev_exc:
+                logger.warning("publish chat.tool.call.started failed: %s", ev_exc)
+
+            exec_result = await tool_executor.execute(
+                tool_name, args, ctx.persona, call_id=tc["id"]
+            )
+            # 回喂 LLM 的文本: 优先 output, 其次 error
+            result_text = exec_result["output"] or exec_result["error"]
+            success = exec_result["success"]
+
+            # v2.3.0 Phase 3-A1: publish chat.tool.call.completed
+            try:
+                await event_bus.publish(
+                    "chat.tool.call.completed",
+                    {
+                        "call_id": tc["id"],
+                        "tool_name": tool_name,
+                        "success": success,
+                        "result": result_text,
+                        "error": exec_result.get("error", ""),
+                    },
+                    source="chat_service",
+                )
+            except Exception as ev_exc:
+                logger.warning("publish chat.tool.call.completed failed: %s", ev_exc)
+
+            yield {
+                "type": "tool_result",
+                "id": tc["id"],
+                "name": tool_name,
+                "result": result_text,
+                "success": success,
+            }
+
+            # v2.2.1 S2: 回喂 LLM 前截断工具结果,防止 provider_messages 累积导致 token 爆炸
+            # 注意: 仅截断回喂 LLM 的 content,前端 yield 仍用原始 result_text
+            truncated_result = _truncate_tool_result(result_text)
+            ctx.provider_messages.append(
+                ProviderMessage(
+                    role="tool",
+                    content=truncated_result,
+                    tool_call_id=tc["id"],
+                )
+            )
+
+    async def _finalize(self, ctx: _StreamCtx) -> AsyncIterator[dict]:
+        """v2.3.1 P1-9: 收尾 — 持久化 assistant 消息, 写 L1 记忆, publish 完成, yield done
+
+        v2.3.1 P0-5: DB 失败时仍 yield done (让前端不 hang), 但记录错误并跳过 L1 记忆。
+        """
+        # 持久化 assistant 消息
+        msg_id: int | None = None
+        try:
+            msg_id = await self._persist_assistant(
+                ctx.conversation_id,
+                ctx.full_response,
+                ctx.last_tool_calls_json,
+            )
+        except Exception as persist_exc:
+            logger.error(
+                "persist assistant failed in main flow: %s",
+                persist_exc,
+                exc_info=True,
+            )
+            yield {
+                "type": "error",
+                "error": f"保存助手消息失败: {persist_exc}",
+            }
 
         # v2.3.0 Phase 3-A1: 写 L1 记忆 (对话级短期记忆) + publish memory.l1.written
         # 失败不阻断主流程 (记忆是副作用, 不应让对话失败)
-        try:
-            await self._maybe_write_l1_memory(
-                conversation_id=conversation_id,
-                persona_id=persona_id,
-                user_message_id=user_msg_id,
-                assistant_message_id=msg_id,
-                user_content=user_content,
-                assistant_response=full_response,
-                reasoning=full_reasoning,
-            )
-        except Exception as mem_exc:
-            logger.warning("write L1 memory failed: %s", mem_exc)
+        # v2.3.1 P0-5: msg_id 为 None (DB 失败) 时跳过 L1 记忆写入
+        if msg_id is not None:
+            try:
+                await self._maybe_write_l1_memory(
+                    conversation_id=ctx.conversation_id,
+                    persona_id=ctx.persona_id,
+                    user_message_id=ctx.user_msg_id,
+                    assistant_message_id=msg_id,
+                    user_content=ctx.user_content,
+                    assistant_response=ctx.full_response,
+                    reasoning=ctx.full_reasoning,
+                )
+            except Exception as mem_exc:
+                logger.warning("write L1 memory failed: %s", mem_exc)
 
         # v2.3.0 Phase 3-A1: publish chat.message.completed
+        event_bus = self._get_event_bus()
         try:
             await event_bus.publish(
                 "chat.message.completed",
                 {
-                    "conversation_id": conversation_id,
-                    "persona_id": persona_id,
+                    "conversation_id": ctx.conversation_id,
+                    "persona_id": ctx.persona_id,
                     "message_id": msg_id,
                 },
                 source="chat_service",

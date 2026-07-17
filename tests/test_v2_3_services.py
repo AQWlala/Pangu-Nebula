@@ -132,7 +132,8 @@ class TestGraphExecutor:
         assert dag.nodes["b"].status == NodeStatus.INTERRUPTED
         assert dag.nodes["c"].status == NodeStatus.INTERRUPTED
         interrupted = [e for e in events if e["type"] == "node_interrupted"]
-        assert len(interrupted) >= 2
+        # 3 节点线性 DAG: A 完成后 interrupt, B/C 恰好 2 个 node_interrupted 事件
+        assert len(interrupted) == 2
 
     async def test_node_failure_publishes_event(self):
         """节点失败: 抛异常的节点 → node_failed 事件 + dag_interrupted"""
@@ -189,7 +190,8 @@ class TestHeartbeatService:
         await asyncio.sleep(0.2)
         await service.stop()
 
-        assert len(calls) >= 1
+        # 0.05s interval + 0.2s sleep 理论 ~4 次, 考虑 CI 抖动至少 2 次确认节拍确实在跑
+        assert len(calls) >= 2
         # 历史记录应包含本节拍
         history = service.get_history()
         assert any(h["beat"] == "test" for h in history)
@@ -212,8 +214,8 @@ class TestHeartbeatService:
         await asyncio.sleep(0.2)
         await service.stop()
 
-        # good beat 不受 bad beat 异常影响
-        assert len(good_calls) >= 1
+        # good beat 不受 bad beat 异常影响; 0.05s interval + 0.2s sleep 至少触发 2 次
+        assert len(good_calls) >= 2
         # bad beat 失败记录在历史中
         history = service.get_history()
         bad_records = [h for h in history if h["beat"] == "bad"]
@@ -300,6 +302,7 @@ class TestDelegationGuard:
         assert guard.get_depth(persona_id=2) == 0
 
     @pytest.mark.asyncio
+    @pytest.mark.filterwarnings("ignore::RuntimeWarning")
     async def test_enter_delegation_publishes_event(self):
         """enter_delegation 异步发布 persona.delegated 事件 (含 persona_id/depth/max_depth)"""
         captured = []

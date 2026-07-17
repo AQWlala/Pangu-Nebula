@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
+import logging
+
 from .config import load_settings, APP_DIR
 from .db.engine import init_db, async_session
 from .api.chat import router as chat_router
@@ -109,40 +111,94 @@ async def lifespan(app: FastAPI):
 
     # v2.3.0 Phase 0: 初始化事件总线 + 心跳节拍器
     # EventBus 是跨模块联动的脊柱,所有 publish/subscribe 经此扇出
-    event_bus = EventBus()
-    app.state.event_bus = event_bus
-    set_global_event_bus(event_bus)
+    # v2.3.1 P0-5: 每个组件 init 包 try/except, 失败时清理已启动的前序组件,
+    # 避免前序失败组件变僵尸。校验 db_initialized 后再启动依赖组件。
+    event_bus: EventBus | None = None
+    heartbeat = None
+    linkage = None
+    graph_executor = None
 
-    # HeartbeatService: 5 种节拍 (微/小/中/大/自检) 错峰执行
-    heartbeat = create_default_heartbeat(app.state)
-    app.state.heartbeat_service = heartbeat
-    await heartbeat.start()
+    if not app.state.db_initialized:
+        # DB 未就绪, 不启动依赖组件 (避免后续组件挂起等连接)
+        logging.getLogger(__name__).error(
+            "DB 未初始化成功, 跳过 EventBus/Heartbeat/LinkageCoordinator 启动"
+        )
+    else:
+        try:
+            # EventBus init
+            event_bus = EventBus()
+            app.state.event_bus = event_bus
+            set_global_event_bus(event_bus)
+        except Exception:
+            logging.getLogger(__name__).exception("EventBus 初始化失败")
+            event_bus = None
 
-    # v2.3.0 Phase 2: 跨模块联动协调器 (后端消费端)
-    # 在 HeartbeatService 之后启动, 注册 5 条联动消费者 (健康/工具/MCP/委派/DAG)
-    # graph_executor 传 None: main.py 无全局实例, 链路 6 降级为 log-only
-    linkage = LinkageCoordinator(
-        event_bus=event_bus,
-        session_factory=async_session,
-        graph_executor=None,
-    )
-    app.state.linkage_coordinator = linkage
-    await linkage.start()
+        try:
+            # HeartbeatService: 5 种节拍 (微/小/中/大/自检) 错峰执行
+            heartbeat = create_default_heartbeat(app.state)
+            app.state.heartbeat_service = heartbeat
+            await heartbeat.start()
+        except Exception:
+            logging.getLogger(__name__).exception("HeartbeatService 启动失败, 清理已启动组件")
+            # 清理 EventBus (前序已启动组件)
+            if event_bus is not None:
+                # EventBus 无 stop, 仅清空 app.state 引用
+                app.state.event_bus = None
+            heartbeat = None
+
+        try:
+            # v2.3.1 P0-4: 实例化全局 GraphExecutor 并传入 LinkageCoordinator,
+            # 使链路 6 (dag.node.failed → interrupt) 不再降级为 log-only
+            from .services.graph_executor import GraphExecutor
+            graph_executor = GraphExecutor(event_bus=event_bus)
+            app.state.graph_executor = graph_executor
+        except Exception:
+            logging.getLogger(__name__).exception("GraphExecutor 初始化失败, 链路 6 将降级为 log-only")
+            graph_executor = None
+
+        try:
+            # v2.3.0 Phase 2: 跨模块联动协调器 (后端消费端)
+            # 在 HeartbeatService 之后启动, 注册 7 条联动消费者 (链路 1/3/4/5/6/7/8)
+            linkage = LinkageCoordinator(
+                event_bus=event_bus or get_event_bus_safe(),
+                session_factory=async_session,
+                graph_executor=graph_executor,
+            )
+            app.state.linkage_coordinator = linkage
+            await linkage.start()
+        except Exception:
+            logging.getLogger(__name__).exception("LinkageCoordinator 启动失败, 清理已启动组件")
+            # 清理前序已启动组件: heartbeat → event_bus → graph_executor
+            if heartbeat is not None:
+                try:
+                    await heartbeat.stop()
+                except Exception:
+                    pass
+                heartbeat = None
+            if graph_executor is not None:
+                app.state.graph_executor = None
+                graph_executor = None
+            if event_bus is not None:
+                app.state.event_bus = None
+                event_bus = None
+            linkage = None
 
     yield
 
     # v2.3.0 Phase 2: 先停止联动协调器 (避免 shutdown 期间消费新事件),
     # 再停止心跳节拍器
-    try:
-        await linkage.stop()
-    except Exception:
-        pass
+    if linkage is not None:
+        try:
+            await linkage.stop()
+        except Exception:
+            pass
 
     # v2.3.0: 停止心跳节拍器 (先停,避免 shutdown 期间触发新任务)
-    try:
-        await heartbeat.stop()
-    except Exception:
-        pass
+    if heartbeat is not None:
+        try:
+            await heartbeat.stop()
+        except Exception:
+            pass
 
     # Shutdown: release store connections. Each close() is wrapped in its own
     # try/except so one failing release does not skip the others.
@@ -154,6 +210,12 @@ async def lifespan(app: FastAPI):
             _store.close()
         except Exception:
             pass
+
+
+def get_event_bus_safe() -> EventBus:
+    """安全获取全局 EventBus (回退到模块级单例)"""
+    from .core.event_bus import get_event_bus
+    return get_event_bus()
 
 
 app = FastAPI(lifespan=lifespan, debug=settings.debug)

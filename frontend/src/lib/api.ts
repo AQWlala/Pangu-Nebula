@@ -13,6 +13,8 @@
 // - 若存在, Tauri 模式: CRUD 走 invoke, 流式/健康检查走动态端口 fetch
 // - 若不存在, 回退到固定 7860 端口 (PyWebView 模式, 全 fetch)
 
+import { logger } from './logger'
+
 // 动态导入 Tauri invoke (避免 PyWebView 模式下加载失败)
 // 注意: invoke 在 request() 内部延迟导入, 仅 Tauri 模式下执行
 
@@ -64,7 +66,7 @@ export async function getHandshake(): Promise<SidecarHandshake | null> {
     const result = await invoke<SidecarHandshake | null>("get_sidecar_handshake")
     return result
   } catch (e) {
-    console.warn("[sidecar] get_sidecar_handshake failed:", e)
+    logger.warn("[sidecar] get_sidecar_handshake failed:", e)
     return null
   }
 }
@@ -254,7 +256,7 @@ export async function initSidecarListener(): Promise<void> {
     if (handshake) {
       window.__NEBULA_PORT__ = handshake.port
       window.__NEBULA_TOKEN__ = handshake.token
-      console.log(`[sidecar] Handshake via command: port=${handshake.port}`)
+      logger.info(`[sidecar] Handshake via command: port=${handshake.port}`)
     }
 
     // 2. 注册事件监听 (处理 sidecar 尚未就绪的情况,或后续重启)
@@ -264,20 +266,20 @@ export async function initSidecarListener(): Promise<void> {
       const { port, token } = event.payload
       window.__NEBULA_PORT__ = port
       window.__NEBULA_TOKEN__ = token
-      console.log(`[sidecar] Ready via event: port=${port}, token=${token.slice(0, 8)}...`)
+      logger.info(`[sidecar] Ready via event: port=${port}, token=${token.slice(0, 8)}...`)
     })
 
     await listen<{ status: string }>("sidecar-health", (event) => {
-      console.log(`[sidecar] Health: ${event.payload.status}`)
+      logger.info(`[sidecar] Health: ${event.payload.status}`)
     })
 
     await listen<{ error: string }>("sidecar-error", (event) => {
-      console.error(`[sidecar] Error: ${event.payload.error}`)
+      logger.error(`[sidecar] Error: ${event.payload.error}`)
     })
 
-    console.log("[sidecar] Event listeners registered")
+    logger.info("[sidecar] Event listeners registered")
   } catch (e) {
-    console.warn("[sidecar] Failed to initialize sidecar listener:", e)
+    logger.warn("[sidecar] Failed to initialize sidecar listener:", e)
   }
 }
 
@@ -306,17 +308,17 @@ export async function waitForSidecar(
     await listen<{ error: string }>("sidecar-error", (event) => {
       sidecarFailed = true
       errorDetail = event.payload?.error || "未知错误"
-      console.error("[sidecar] Error event:", errorDetail)
+      logger.error("[sidecar] Error event:", errorDetail)
     })
   } catch (e) {
-    console.warn("[sidecar] Failed to listen sidecar-error:", e)
+    logger.warn("[sidecar] Failed to listen sidecar-error:", e)
   }
 
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     // 如果收到 sidecar-error, 立即返回 false
     if (sidecarFailed) {
-      console.error("[sidecar] waitForSidecar failed early:", errorDetail)
+      logger.error("[sidecar] waitForSidecar failed early:", errorDetail)
       return false
     }
 
@@ -338,6 +340,6 @@ export async function waitForSidecar(
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs))
   }
-  console.error("[sidecar] waitForSidecar timed out")
+  logger.error("[sidecar] waitForSidecar timed out")
   return false
 }

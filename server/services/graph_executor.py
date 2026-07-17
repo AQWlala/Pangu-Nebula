@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, AsyncIterator, Callable, Awaitable
@@ -95,6 +96,8 @@ class GraphExecutor:
         self.event_bus = event_bus or get_event_bus()
         # 节点级超时(秒)。可被 node.inputs["timeout"] 覆盖
         self.default_timeout: float = 300.0
+        # 活跃 DAG 注册表: dag_id -> DAG (供链路 6 查找并 interrupt)
+        self._active_dags: dict[str, DAG] = {}
 
     async def run_dag(self, dag: DAG) -> AsyncIterator[dict[str, Any]]:
         """执行 DAG 主循环
@@ -110,137 +113,143 @@ class GraphExecutor:
         - {"type": "dag_failed", "dag_id": ..., "error": ...}
         - {"type": "dag_interrupted", "dag_id": ...}
         """
-        yield {"type": "dag_started", "dag_id": dag.id}
-        await self.event_bus.publish(
-            "dag.node.started",
-            {"dag_id": dag.id, "phase": "dag_started"},
-            source="graph_executor",
-        )
-
-        # 拓扑排序(简易:基于入度)
-        order = self._topological_sort(dag)
-        if order is None:
-            error_msg = f"DAG {dag.id} 存在环,无法拓扑排序"
-            yield {"type": "dag_failed", "dag_id": dag.id, "error": error_msg}
-            await self.event_bus.publish(
-                "dag.node.failed",
-                {"dag_id": dag.id, "error": error_msg},
-                source="graph_executor",
-            )
-            return
-
-        for node_id in order:
-            # 中断检查 (外部设置 dag.interrupted = True)
-            if dag.interrupted:
-                node = dag.nodes[node_id]
-                if node.status == NodeStatus.PENDING:
-                    node.status = NodeStatus.INTERRUPTED
-                    yield {"type": "node_interrupted", "node_id": node_id}
-                    await self.event_bus.publish(
-                        "dag.node.interrupted",
-                        {"dag_id": dag.id, "node_id": node_id, "title": node.title},
-                        source="graph_executor",
-                    )
-                continue
-
-            node = dag.nodes[node_id]
-
-            # 条件边检查: 若任一入边的条件不满足,跳过
-            if not self._check_incoming_conditions(dag, node_id):
-                node.status = NodeStatus.SKIPPED
-                yield {"type": "node_skipped", "node_id": node_id, "reason": "条件不满足"}
-                await self.event_bus.publish(
-                    "dag.node.interrupted",
-                    {"dag_id": dag.id, "node_id": node_id, "reason": "条件不满足", "skipped": True},
-                    source="graph_executor",
-                )
-                continue
-
-            # 入口节点或上游已完成才能执行
-            if not self._predecessors_completed(dag, node_id):
-                # 上游未完成(被跳过或失败),本节点也跳过
-                node.status = NodeStatus.SKIPPED
-                yield {"type": "node_skipped", "node_id": node_id, "reason": "上游未完成"}
-                continue
-
-            # 执行节点
-            import time
-            node.status = NodeStatus.RUNNING
-            node.started_at = time.time()
-            yield {"type": "node_started", "node_id": node_id, "title": node.title}
+        # 注册到活跃 DAG 表 (供链路 6 dag.node.failed → interrupt 查找)
+        self._active_dags[dag.id] = dag
+        try:
+            yield {"type": "dag_started", "dag_id": dag.id}
             await self.event_bus.publish(
                 "dag.node.started",
-                {"dag_id": dag.id, "node_id": node_id, "title": node.title, "persona_id": node.persona_id},
+                {"dag_id": dag.id, "phase": "dag_started"},
                 source="graph_executor",
             )
 
-            try:
-                # 节点超时控制
-                timeout = float(node.inputs.get("timeout", self.default_timeout))
-                if node.execute_fn is None:
-                    # 无执行函数:视为 no-op 完成(占位/checkpoint 节点)
-                    node.output = {"success": True, "result": "no-op"}
-                else:
-                    # 注入上游输出作为上下文
-                    context = self._build_node_context(dag, node_id)
-                    node.output = await asyncio.wait_for(
-                        node.execute_fn(node=node, context=context, event_bus=self.event_bus),
-                        timeout=timeout,
+            # 拓扑排序(简易:基于入度)
+            order = self._topological_sort(dag)
+            if order is None:
+                error_msg = f"DAG {dag.id} 存在环,无法拓扑排序"
+                yield {"type": "dag_failed", "dag_id": dag.id, "error": error_msg}
+                await self.event_bus.publish(
+                    "dag.node.failed",
+                    {"dag_id": dag.id, "error": error_msg},
+                    source="graph_executor",
+                )
+                return
+
+            for node_id in order:
+                # 中断检查 (外部设置 dag.interrupted = True)
+                if dag.interrupted:
+                    node = dag.nodes[node_id]
+                    if node.status == NodeStatus.PENDING:
+                        node.status = NodeStatus.INTERRUPTED
+                        yield {"type": "node_interrupted", "node_id": node_id}
+                        await self.event_bus.publish(
+                            "dag.node.interrupted",
+                            {"dag_id": dag.id, "node_id": node_id, "title": node.title},
+                            source="graph_executor",
+                        )
+                    continue
+
+                node = dag.nodes[node_id]
+
+                # 条件边检查: 若任一入边的条件不满足,跳过
+                if not self._check_incoming_conditions(dag, node_id):
+                    node.status = NodeStatus.SKIPPED
+                    yield {"type": "node_skipped", "node_id": node_id, "reason": "条件不满足"}
+                    await self.event_bus.publish(
+                        "dag.node.skipped",
+                        {"dag_id": dag.id, "node_id": node_id, "reason": "条件不满足"},
+                        source="graph_executor",
                     )
-                node.status = NodeStatus.COMPLETED
-                node.completed_at = time.time()
-                yield {"type": "node_completed", "node_id": node_id, "output": node.output}
+                    continue
+
+                # 入口节点或上游已完成才能执行
+                if not self._predecessors_completed(dag, node_id):
+                    # 上游未完成(被跳过或失败),本节点也跳过
+                    node.status = NodeStatus.SKIPPED
+                    yield {"type": "node_skipped", "node_id": node_id, "reason": "上游未完成"}
+                    continue
+
+                # 执行节点
+                import time
+                node.status = NodeStatus.RUNNING
+                node.started_at = time.time()
+                yield {"type": "node_started", "node_id": node_id, "title": node.title}
                 await self.event_bus.publish(
-                    "dag.node.completed",
-                    {"dag_id": dag.id, "node_id": node_id, "output": node.output},
+                    "dag.node.started",
+                    {"dag_id": dag.id, "node_id": node_id, "title": node.title, "persona_id": node.persona_id},
                     source="graph_executor",
                 )
 
-                # checkpoint 节点: 记录回退点
-                if node.node_type == "checkpoint":
-                    dag.last_checkpoint_id = node_id
+                try:
+                    # 节点超时控制
+                    timeout = float(node.inputs.get("timeout", self.default_timeout))
+                    if node.execute_fn is None:
+                        # 无执行函数:视为 no-op 完成(占位/checkpoint 节点)
+                        node.output = {"success": True, "result": "no-op"}
+                    else:
+                        # 注入上游输出作为上下文
+                        context = self._build_node_context(dag, node_id)
+                        node.output = await asyncio.wait_for(
+                            node.execute_fn(node=node, context=context, event_bus=self.event_bus),
+                            timeout=timeout,
+                        )
+                    node.status = NodeStatus.COMPLETED
+                    node.completed_at = time.time()
+                    yield {"type": "node_completed", "node_id": node_id, "output": node.output}
+                    await self.event_bus.publish(
+                        "dag.node.completed",
+                        {"dag_id": dag.id, "node_id": node_id, "output": node.output},
+                        source="graph_executor",
+                    )
 
-            except asyncio.TimeoutError:
-                node.status = NodeStatus.FAILED
-                node.error = f"节点执行超时 ({timeout}s)"
-                yield {"type": "node_failed", "node_id": node_id, "error": node.error}
-                await self.event_bus.publish(
-                    "dag.node.failed",
-                    {"dag_id": dag.id, "node_id": node_id, "error": node.error, "reason": "timeout"},
-                    source="graph_executor",
-                )
-                # 失败后中断后续节点
-                yield {"type": "dag_interrupted", "dag_id": dag.id, "failed_node": node_id}
-                await self.event_bus.publish(
-                    "dag.node.interrupted",
-                    {"dag_id": dag.id, "reason": "node_failed", "failed_node": node_id},
-                    source="graph_executor",
-                )
-                return
-            except Exception as exc:
-                node.status = NodeStatus.FAILED
-                node.error = str(exc)
-                logger.exception("DAG 节点执行失败 dag=%s node=%s", dag.id, node_id)
-                yield {"type": "node_failed", "node_id": node_id, "error": node.error}
-                await self.event_bus.publish(
-                    "dag.node.failed",
-                    {"dag_id": dag.id, "node_id": node_id, "error": node.error},
-                    source="graph_executor",
-                )
-                yield {"type": "dag_interrupted", "dag_id": dag.id, "failed_node": node_id}
-                await self.event_bus.publish(
-                    "dag.node.interrupted",
-                    {"dag_id": dag.id, "reason": "node_failed", "failed_node": node_id},
-                    source="graph_executor",
-                )
-                return
+                    # checkpoint 节点: 记录回退点
+                    if node.node_type == "checkpoint":
+                        dag.last_checkpoint_id = node_id
 
-        yield {"type": "dag_completed", "dag_id": dag.id}
-        await self.event_bus.publish(
-            "dag.node.completed",
-            {"dag_id": dag.id, "phase": "dag_completed"},
-            source="graph_executor",
-        )
+                except asyncio.TimeoutError:
+                    node.status = NodeStatus.FAILED
+                    node.error = f"节点执行超时 ({timeout}s)"
+                    yield {"type": "node_failed", "node_id": node_id, "error": node.error}
+                    await self.event_bus.publish(
+                        "dag.node.failed",
+                        {"dag_id": dag.id, "node_id": node_id, "error": node.error, "reason": "timeout"},
+                        source="graph_executor",
+                    )
+                    # 失败后中断后续节点
+                    yield {"type": "dag_interrupted", "dag_id": dag.id, "failed_node": node_id}
+                    await self.event_bus.publish(
+                        "dag.node.interrupted",
+                        {"dag_id": dag.id, "reason": "node_failed", "failed_node": node_id},
+                        source="graph_executor",
+                    )
+                    return
+                except Exception as exc:
+                    node.status = NodeStatus.FAILED
+                    node.error = str(exc)
+                    logger.exception("DAG 节点执行失败 dag=%s node=%s", dag.id, node_id)
+                    yield {"type": "node_failed", "node_id": node_id, "error": node.error}
+                    await self.event_bus.publish(
+                        "dag.node.failed",
+                        {"dag_id": dag.id, "node_id": node_id, "error": node.error},
+                        source="graph_executor",
+                    )
+                    yield {"type": "dag_interrupted", "dag_id": dag.id, "failed_node": node_id}
+                    await self.event_bus.publish(
+                        "dag.node.interrupted",
+                        {"dag_id": dag.id, "reason": "node_failed", "failed_node": node_id},
+                        source="graph_executor",
+                    )
+                    return
+
+            yield {"type": "dag_completed", "dag_id": dag.id}
+            await self.event_bus.publish(
+                "dag.completed",
+                {"dag_id": dag.id, "phase": "dag_completed"},
+                source="graph_executor",
+            )
+        finally:
+            # 无论成功/失败/中断, 都从活跃注册表注销
+            self._active_dags.pop(dag.id, None)
 
     def _topological_sort(self, dag: DAG) -> list[str] | None:
         """Kahn 拓扑排序。返回 None 表示存在环"""
@@ -248,10 +257,11 @@ class GraphExecutor:
         for edge in dag.edges:
             in_degree[edge.target] = in_degree.get(edge.target, 0) + 1
 
-        queue: list[str] = [nid for nid, deg in in_degree.items() if deg == 0]
+        # 使用 deque.popleft() 替代 list.pop(0) — O(1) vs O(N)
+        queue: deque[str] = deque(nid for nid, deg in in_degree.items() if deg == 0)
         order: list[str] = []
         while queue:
-            nid = queue.pop(0)
+            nid = queue.popleft()
             order.append(nid)
             for edge in dag.edges:
                 if edge.source == nid:

@@ -45,10 +45,10 @@ def test_validate_shell_allows_powershell():
         ok, resolved = _validate_shell("powershell")
         assert ok is True
         assert resolved == fake_path
-        # basename 应为 powershell.exe
+        # basename 应为 powershell.exe (v2.2.2: 跨平台提取, Linux 上 os.path.basename 不认 \)
         import os
 
-        assert os.path.basename(resolved).lower() == "powershell.exe"
+        assert os.path.basename(resolved.replace("\\", "/")).lower() == "powershell.exe"
 
 
 def test_validate_shell_denies_arbitrary():

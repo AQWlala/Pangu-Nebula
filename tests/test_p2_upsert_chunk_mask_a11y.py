@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -35,6 +35,9 @@ def mock_lance_env():
 
     LanceVectorStore.__init__ 不 import lancedb; _ensure_db/upsert 运行时才 import。
     测试中 _table/_db 已设为 mock, _ensure_db 提前返回, 不会触发真实 lancedb 调用。
+
+    v2.2.2: lance_store.pa 提升为模块级引用 (try/except 绑定为 None 当 pyarrow 缺失),
+    仅 patch sys.modules 不够, 必须同时 patch lance_store.pa 模块属性。
     """
     import sys
 
@@ -44,7 +47,11 @@ def mock_lance_env():
     sys.modules["pyarrow"] = mock_pa
     sys.modules["lancedb"] = mock_ldb
     try:
-        yield mock_pa
+        # v2.2.2: lance_store.pa 已是模块级引用, sys.modules 注入无法重绑定,
+        # 必须显式 patch 模块属性, 否则 pa 为 None 时 upsert 中 pa.Table.from_pylist 抛
+        # AttributeError: 'NoneType' object has no attribute 'Table'
+        with patch("server.kb.retrieval.lance_store.pa", mock_pa):
+            yield mock_pa
     finally:
         for k, v in saved.items():
             if v is None:

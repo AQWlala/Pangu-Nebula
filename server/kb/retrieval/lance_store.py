@@ -27,6 +27,14 @@ from .vectorstore import _LocalHashEmbedding
 
 logger = logging.getLogger(__name__)
 
+# v2.2.2: 模块级惰性 import pyarrow — upsert/_ensure_table_with_data 使用
+# 提升到模块级便于测试 mock (patch("server.kb.retrieval.lance_store.pa"))
+# pyarrow 是 lancedb 的依赖,无 lancedb 时也不影响模块导入 (pa 为 None,运行时降级)
+try:
+    import pyarrow as pa  # type: ignore  # noqa: F401
+except ImportError:
+    pa = None  # type: ignore
+
 
 # ---- F4 安全修复: LanceDB SQL 注入防护辅助函数 ----
 # LanceDB 的 where 子句不接受参数化查询,只能拼接字符串。
@@ -168,7 +176,6 @@ class LanceVectorStore:
             return
         if not chunks:
             return
-        import pyarrow as pa  # type: ignore
 
         # 计算向量
         texts = [c["text"] for c in chunks]
@@ -243,8 +250,6 @@ class LanceVectorStore:
                 continue
 
         # 添加新记录
-        import pyarrow as pa  # type: ignore
-
         texts = [c["text"] for c in chunks]
         vectors = self._embedding_function(texts)
         rows = []
